@@ -169,27 +169,27 @@ int main(int argc, char ** argv)
 
 }
 
-//Funcao que salva o frame em um ppm (posteriormente manipular imagem)
+//Funcao que salva o frame em uma imagem ppm (posteriormente manipular imagem)
 void save_frame(AVFrame * pFrame, int width, int height, int iFrame) 
 {
 	FILE *pFile;
 	char szFilename[32];
 	int  y;
 
-	// Open file
+	// Abre arquivo
 	sprintf(szFilename, "frame%d.ppm", iFrame);
 	pFile=fopen(szFilename, "wb");
 	if(pFile==NULL)
 	return;
 
-	// Write header
+	// Escreve cabeçalho
 	fprintf(pFile, "P6\n%d %d\n255\n", width, height);
 
-	// Write pixel data
+	// Escreve os pixels
 	for(y=0; y<height; y++)
-	fwrite(pFrame->data[0]+y*pFrame->linesize[0], 1, width*3, pFile);
+		fwrite(pFrame->data[0]+y*pFrame->linesize[0], 1, width*3, pFile);
 
-	// Close file
+	// Fecha arquivo
 	fclose(pFile);
 }
 
