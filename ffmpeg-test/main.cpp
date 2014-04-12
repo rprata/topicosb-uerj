@@ -7,7 +7,7 @@ extern "C" {
 #include <libswscale/swscale.h>
 #include <libavutil/pixfmt.h>
 
-#define NUMBER_SAVED_FRAMES 50
+#define NUMBER_SAVED_FRAMES 150
 
 AVFormatContext * pFormatCtx;
 AVCodecContext * pCodecCtx;
@@ -23,6 +23,7 @@ int frameFinished;
 long long counter_frames = 0;
 
 void save_frame(AVFrame * pFrame, int width, int height, int iFrame);
+void gray_filter(uint8_t * bufferRGB);
 
 int main(int argc, char ** argv)
 {
@@ -174,7 +175,7 @@ void save_frame(AVFrame * pFrame, int width, int height, int iFrame)
 {
 	FILE *pFile;
 	char szFilename[32];
-	int  y;
+	int  y, k;
 
 	// Abre arquivo
 	sprintf(szFilename, "frame%d.ppm", iFrame);
@@ -185,12 +186,32 @@ void save_frame(AVFrame * pFrame, int width, int height, int iFrame)
 	// Escreve cabeçalho
 	fprintf(pFile, "P6\n%d %d\n255\n", width, height);
 
-	// Escreve os pixels
-	for(y=0; y<height; y++)
+	// Escreve os pixels em um arquivo ppm
+	for(y = 0; y < height; y++)
+	{
+		for (k = 0; k < 3 * width; k += 3)
+			//Aplicando meu filtro de tons de cinza :P
+			gray_filter((pFrame->data[0] + y*pFrame->linesize[0]) + k);
+
 		fwrite(pFrame->data[0]+y*pFrame->linesize[0], 1, width*3, pFile);
+	}
 
 	// Fecha arquivo
 	fclose(pFile);
+}
+
+void gray_filter(uint8_t * bufferRGB)
+{
+	float r, g, b;
+	uint8_t out;
+
+	b = (float)(0.0722 * *(bufferRGB));
+	g = (float)(0.7152 * *(bufferRGB + 1));
+	r = (float)(0.2126 * *(bufferRGB + 2));
+	out = (uint8_t) (r + g + b);
+	*(bufferRGB) = out;
+	*(bufferRGB + 1) = out;
+	*(bufferRGB + 2) = out;
 }
 
 }
