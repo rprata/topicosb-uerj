@@ -6,22 +6,24 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
 #include <libavutil/pixfmt.h>
+#include <libavutil/mathematics.h>
 
-#define NUMBER_SAVED_FRAMES 150
+#define NUMBER_SAVED_FRAMES 250
 
 AVFormatContext * pFormatCtx;
 AVCodecContext * pCodecCtx;
 AVCodec * pCodec;
-AVFrame * pFrameRGB, * pDecodedFrame;
+AVFrame * pFrameRGB, * pDecodedFrame, * pOutputFrame;
 AVPacket packet;
-struct SwsContext * sws_ctx = NULL;
+struct SwsContext * sws_ctx = NULL, * out_sws_ctx = NULL;
 
 const char * filename;
-uint8_t * buffer;
-int numBytes;
+uint8_t * bufferRGB, * bufferYUV;
+int numBytesRGB, numBytesYUV;
 int frameFinished;
-long long counter_frames = 0;
+int counter_frames = 0;
 
+void filter_video(AVFrame * pFrame, int width, int height); 
 void save_frame(AVFrame * pFrame, int width, int height, int iFrame);
 void gray_filter(uint8_t * bufferRGB);
 
@@ -97,11 +99,17 @@ int main(int argc, char ** argv)
   		fprintf(stderr, "Nao foi possivel alocar memoria para o frame de video\n");
 	  	return -1;
   	}
+
+  	if ((pOutputFrame = avcodec_alloc_frame()) == NULL)
+  	{
+  		fprintf(stderr, "Nao foi possivel alocar memoria para o frame de video\n");
+	  	return -1;
+  	}
 	
 	//Determina o tamanho necessario do buffer e aloca a memoria
-	numBytes = avpicture_get_size(PIX_FMT_RGB24, pCodecCtx->width, pCodecCtx->height);
+	numBytesRGB = avpicture_get_size(PIX_FMT_RGB24, pCodecCtx->width, pCodecCtx->height);
 	
-	buffer = (uint8_t *) av_malloc(numBytes*sizeof(uint8_t));
+	bufferRGB = (uint8_t *) av_malloc(numBytesRGB*sizeof(uint8_t));
 
 	//Configura o contexto para o escalonamento
 	sws_ctx = sws_getContext (
@@ -118,7 +126,61 @@ int main(int argc, char ** argv)
 	);
 
 	//Aplica para o buffer os frames no formato FMT_RGB24 (pacote RGB 8:8:8, 24bpp, RGBRGB...)
-	avpicture_fill((AVPicture *) pFrameRGB, buffer , PIX_FMT_RGB24, pCodecCtx->width, pCodecCtx->height);
+	avpicture_fill((AVPicture *) pFrameRGB, bufferRGB , PIX_FMT_RGB24, pCodecCtx->width, pCodecCtx->height);
+
+	//Preparando AVCodecContext de saida
+	AVCodecContext * c = NULL;
+	AVCodec * codec = avcodec_find_encoder(CODEC_ID_MPEG2VIDEO);
+
+	if (!codec)
+	{
+		fprintf(stderr, "Codec nao encontrado\n");
+		return -1;
+	}
+
+	c = avcodec_alloc_context3(codec);
+
+	//Configurando valores para o contexto do video de saida
+    c->bit_rate = 400000;
+    c->width = 1280;
+    c->height = 720;
+    c->time_base = (AVRational) {1,25};
+    c->gop_size = 10;
+    c->max_b_frames = 1;
+    c->pix_fmt = PIX_FMT_YUV420P;
+
+    if (avcodec_open2(c, codec, NULL) < 0) return -1;
+
+    FILE * pFile = fopen("out.mpg", "wb");
+	if (!pFile) 
+	{
+    	fprintf(stderr, "could not open out.mpg\n");
+	    return -1;
+	}
+
+	int outbuf_size = 300000, out_size;
+	uint8_t * outbuf = (uint8_t *) av_malloc(outbuf_size);
+
+
+	//Criacao de contexto para converter um tipo RGB24 para YUV240P (preparacao para encoded)
+    numBytesYUV = avpicture_get_size(PIX_FMT_YUV420P, c->width, c->height);
+	
+	bufferYUV = (uint8_t *) av_malloc(numBytesYUV*sizeof(uint8_t));
+
+    out_sws_ctx = sws_getContext (
+	        c->width,
+	        c->height,
+	        PIX_FMT_RGB24,
+	       	c->width,
+	        c->height,
+	        PIX_FMT_YUV420P,
+	        SWS_FAST_BILINEAR,
+	        NULL,
+	        NULL,
+	        NULL
+	);
+
+	avpicture_fill((AVPicture *) pOutputFrame, bufferYUV , PIX_FMT_YUV420P, c->width, c->height);
 
 	while(av_read_frame(pFormatCtx, &packet) >= 0) 
 	{
@@ -142,11 +204,28 @@ int main(int argc, char ** argv)
 					pFrameRGB->data,
 					pFrameRGB->linesize
 				);
-				
 				if (counter_frames > NUMBER_SAVED_FRAMES) 
 					break;
 
-				save_frame(pFrameRGB, pCodecCtx->width, pCodecCtx->height, counter_frames);				
+				// save_frame(pFrameRGB, pCodecCtx->width, pCodecCtx->height, counter_frames);				
+				
+				filter_video(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
+
+				//Convertendo de RFB para YUV
+				sws_scale (
+					out_sws_ctx, 
+					(uint8_t const * const *) pFrameRGB->data, 
+					pFrameRGB->linesize, 
+        			0, 
+        			c->height, 
+        			pOutputFrame->data, 
+        			pOutputFrame->linesize
+        		);	
+
+				fflush(stdout);
+				out_size = avcodec_encode_video(c, outbuf, outbuf_size, pOutputFrame);
+				std::cout << "write frame " << counter_frames << "(size = " << out_size << ")" << std::endl;
+				fwrite(outbuf, 1, out_size, pFile);
 				
 				counter_frames++;
 		     }	
@@ -156,9 +235,24 @@ int main(int argc, char ** argv)
   		av_free_packet(&packet);
 	}
 
-	//Libera os Frames RGB
-	av_free(buffer);
-	av_free(pFrameRGB);
+	//captura frames atrasados 
+    for(; out_size; counter_frames++) { 
+        fflush(stdout); 
+                
+        out_size = avcodec_encode_video(c, outbuf, outbuf_size, NULL); 
+		std::cout << "write frame " << counter_frames << "(size = " << out_size << ")" << std::endl;
+        fwrite(outbuf, 1, outbuf_size, pFile);       
+    } 
+
+	// adiciona sequencia para um real mpeg
+    outbuf[0] = 0x00;
+    outbuf[1] = 0x00;
+    outbuf[2] = 0x01;
+    outbuf[3] = 0xb7;
+	fwrite(outbuf, 1, 4, pFile);
+
+	fclose(pFile);
+	free(outbuf);
 
 	//Fecha o codec
 	avcodec_close(pCodecCtx);
@@ -178,7 +272,7 @@ void save_frame(AVFrame * pFrame, int width, int height, int iFrame)
 	int  y, k;
 
 	// Abre arquivo
-	sprintf(szFilename, "frame%d.ppm", iFrame);
+	sprintf(szFilename, "../images/frame%d.ppm", iFrame);
 	pFile=fopen(szFilename, "wb");
 	if(pFile==NULL)
 	return;
@@ -199,6 +293,16 @@ void save_frame(AVFrame * pFrame, int width, int height, int iFrame)
 	// Fecha arquivo
 	fclose(pFile);
 }
+
+void filter_video(AVFrame * pFrame, int width, int height)
+{
+	int  y, k;
+	//Aplicando meu filtro de tons de cinza :P
+	for(y = 0; y < height; y++)
+		for (k = 0; k < 3 * width; k += 3)
+			gray_filter((pFrame->data[0] + y*pFrame->linesize[0]) + k);
+}
+
 
 void gray_filter(uint8_t * bufferRGB)
 {
