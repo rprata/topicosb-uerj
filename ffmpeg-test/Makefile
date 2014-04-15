@@ -1,6 +1,6 @@
 CXX :=g++
 CXXFLAGS :=-Wall -D__STDC_CONSTANT_MACROS
-LDLIBS := -lavutil \
+LDLIBS :=-lavutil \
 		  -lavformat \
 		  -lavcodec \
 		  -lswscale \

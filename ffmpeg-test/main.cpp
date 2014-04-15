@@ -141,9 +141,9 @@ int main(int argc, char ** argv)
 	c = avcodec_alloc_context3(codec);
 
 	//Configurando valores para o contexto do video de saida
-    c->bit_rate = 400000;
-    c->width = 1280;
-    c->height = 720;
+    c->bit_rate = pCodecCtx->bit_rate;
+    c->width = pCodecCtx->width;
+    c->height = pCodecCtx->height;
     c->time_base = (AVRational) {1,25};
     c->gop_size = 10;
     c->max_b_frames = 1;
