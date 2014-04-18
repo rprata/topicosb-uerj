@@ -227,7 +227,7 @@ int main(int argc, char ** argv)
 					pFrameRGB->linesize
 				);
 
-				filter_video(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
+				// filter_video(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
 
 				filter_average(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
 
