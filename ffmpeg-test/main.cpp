@@ -8,7 +8,11 @@ extern "C" {
 #include <libavutil/pixfmt.h>
 #include <libavutil/mathematics.h>
 
+#include <SDL.h>
+#include <SDL_thread.h>
+
 #define NUMBER_SAVED_FRAMES 250
+// #define SAVE_VIDEO
 
 AVFormatContext * pFormatCtx;
 AVCodecContext * pCodecCtx;
@@ -16,6 +20,10 @@ AVCodec * pCodec;
 AVFrame * pFrameRGB, * pDecodedFrame, * pOutputFrame;
 AVPacket packet;
 struct SwsContext * sws_ctx = NULL, * out_sws_ctx = NULL;
+
+SDL_Overlay * bmp;
+SDL_Rect rect;
+SDL_Event event;
 
 const char * filename;
 uint8_t * bufferRGB, * bufferYUV;
@@ -26,6 +34,8 @@ int counter_frames = 0;
 void filter_video(AVFrame * pFrame, int width, int height); 
 void save_frame(AVFrame * pFrame, int width, int height, int iFrame);
 void gray_filter(uint8_t * bufferRGB);
+void play_original_video(const char * arg);
+SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp);
 
 int main(int argc, char ** argv)
 {
@@ -130,7 +140,7 @@ int main(int argc, char ** argv)
 
 	//Preparando AVCodecContext de saida
 	AVCodecContext * c = NULL;
-	AVCodec * codec = avcodec_find_encoder(CODEC_ID_MPEG2VIDEO);
+	AVCodec * codec = avcodec_find_encoder(CODEC_ID_MPEG1VIDEO);
 
 	if (!codec)
 	{
@@ -144,9 +154,9 @@ int main(int argc, char ** argv)
     c->bit_rate = pCodecCtx->bit_rate;
     c->width = pCodecCtx->width;
     c->height = pCodecCtx->height;
-    c->time_base = (AVRational) {1,25};
-    c->gop_size = 10;
-    c->max_b_frames = 1;
+    c->time_base = pCodecCtx->time_base;
+    c->gop_size = pCodecCtx->gop_size;
+    c->max_b_frames = pCodecCtx->max_b_frames;
     c->pix_fmt = PIX_FMT_YUV420P;
 
     if (avcodec_open2(c, codec, NULL) < 0) return -1;
@@ -181,18 +191,29 @@ int main(int argc, char ** argv)
 	);
 
 	avpicture_fill((AVPicture *) pOutputFrame, bufferYUV , PIX_FMT_YUV420P, c->width, c->height);
+	
+	bmp = init_sdl_window(pCodecCtx, bmp);
+	
+	if (bmp == NULL) 
+	{
+		return -1;
+	}
+	
+	play_original_video(argv[1]);
 
 	while(av_read_frame(pFormatCtx, &packet) >= 0) 
 	{
 	  	//Testa se e unm pacote com de stream de video
 	  	if(packet.stream_index == video_stream) 
-	  	{
+	  	{	  		
 			// Decode frame de video
 		    avcodec_decode_video2(pCodecCtx, pDecodedFrame, &frameFinished, &packet);
 		    
 		    //Testa se ja existe um quadro de video
 		    if (frameFinished) 
 		    {
+		    	SDL_LockYUVOverlay(bmp);
+				
 		   		//Converte a imagem de seu formato nativo para RGB
 		   		sws_scale
 				(
@@ -204,11 +225,7 @@ int main(int argc, char ** argv)
 					pFrameRGB->data,
 					pFrameRGB->linesize
 				);
-				if (counter_frames > NUMBER_SAVED_FRAMES) 
-					break;
 
-				// save_frame(pFrameRGB, pCodecCtx->width, pCodecCtx->height, counter_frames);				
-				
 				filter_video(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
 
 				//Convertendo de RFB para YUV
@@ -222,10 +239,31 @@ int main(int argc, char ** argv)
         			pOutputFrame->linesize
         		);	
 
+	    		pOutputFrame->data[0] = bmp->pixels[0];
+				pOutputFrame->data[1] = bmp->pixels[2];
+				pOutputFrame->data[2] = bmp->pixels[1];
+
+				pOutputFrame->linesize[0] = bmp->pitches[0];
+				pOutputFrame->linesize[1] = bmp->pitches[2];
+				pOutputFrame->linesize[2] = bmp->pitches[1];
+
+				SDL_UnlockYUVOverlay(bmp);
+
+				rect.x = 0;
+				rect.y = 0;
+				rect.w = 1280;
+				rect.h = 720;
+
+				SDL_DisplayYUVOverlay(bmp, &rect);
+
+
+				#ifdef SAVE_VIDEO
+				//codigo para salvar frames em uma saida
 				fflush(stdout);
 				out_size = avcodec_encode_video(c, outbuf, outbuf_size, pOutputFrame);
 				std::cout << "write frame " << counter_frames << "(size = " << out_size << ")" << std::endl;
 				fwrite(outbuf, 1, out_size, pFile);
+				#endif
 				
 				counter_frames++;
 		     }	
@@ -233,6 +271,17 @@ int main(int argc, char ** argv)
     
   		// Libera o pacote alocado pelo pacote
   		av_free_packet(&packet);
+  		
+  		SDL_PollEvent(&event);
+	    
+	    switch(event.type) 
+	    {
+	    	case SDL_QUIT: SDL_Quit();
+	      		exit(0);
+	      		break;
+	    	default:
+	      		break;
+	    }
 	}
 
 	//captura frames atrasados 
@@ -262,6 +311,35 @@ int main(int argc, char ** argv)
 
 	return 0;
 
+}
+
+void play_original_video(const char * arg) 
+{
+	char command[50];
+	sprintf(command, "vlc %s &",arg);
+	system(command);
+}
+
+SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp) 
+{
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER)) 
+	{
+    	fprintf(stderr, "Nao foi possivel inicializar o SDL - %s\n", SDL_GetError());
+    	return NULL;
+  	}
+
+  	SDL_Surface * screen;
+
+	screen = SDL_SetVideoMode(pCodecCtx->width, pCodecCtx->height, 0, 0);
+	if (!screen) 
+	{
+  		fprintf(stderr, "SDL: Nao foi possivel configurar o modo do video\n");
+  		return NULL;
+	}
+
+	bmp = SDL_CreateYUVOverlay(pCodecCtx->width, pCodecCtx->height, SDL_YV12_OVERLAY, screen);
+	
+  	return bmp;
 }
 
 //Funcao que salva o frame em uma imagem ppm (posteriormente manipular imagem)
@@ -317,5 +395,7 @@ void gray_filter(uint8_t * bufferRGB)
 	*(bufferRGB + 1) = out;
 	*(bufferRGB + 2) = out;
 }
+
+
 
 }

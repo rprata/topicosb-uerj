@@ -6,12 +6,14 @@ LDLIBS :=-lavutil \
 		 -lswscale \
 		 -lz \
 		 -lavutil \
-		 -lm
+		 -lm \
+
 SOURCE :=main.cpp
 EXECUTE :=main
 
+LDLIBS += `sdl-config --cflags --libs`
 all:
-	$(CXX) -o $(EXECUTE) $(SOURCE) $(CXXFLAGS) $(LDLIBS)
+	$(CXX) $(CXXFLAGS) -o $(EXECUTE) $(SOURCE) $(LDLIBS)
 
 clean:
 	rm -r $(EXECUTE)
