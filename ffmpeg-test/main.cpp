@@ -277,7 +277,7 @@ int main(int argc, char ** argv)
 	    switch(event.type) 
 	    {
 	    	case SDL_QUIT: SDL_Quit();
-	      		exit(0);
+	    		return 0;
 	      		break;
 	    	default:
 	      		break;
@@ -330,7 +330,7 @@ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp)
 
   	SDL_Surface * screen;
 
-	screen = SDL_SetVideoMode(pCodecCtx->width, pCodecCtx->height, 0, 0);
+	screen = SDL_SetVideoMode(1280, 720, 0, 0);
 	if (!screen) 
 	{
   		fprintf(stderr, "SDL: Nao foi possivel configurar o modo do video\n");
