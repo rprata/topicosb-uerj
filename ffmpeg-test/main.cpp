@@ -31,12 +31,13 @@ int numBytesRGB, numBytesYUV;
 int frameFinished;
 int counter_frames = 0;
 
-void filter_video(AVFrame * pFrame, int width, int height); 
-void save_frame(AVFrame * pFrame, int width, int height, int iFrame);
+void filter_video(AVFrame * pFrame, int width, int height);
+void filter_average(AVFrame * pFrame, int width, int height);
 void gray_filter(uint8_t * bufferRGB);
+void blur_filter(uint8_t * center, uint8_t left, uint8_t right, uint8_t top, uint8_t bottom);
+void save_frame(AVFrame * pFrame, int width, int height, int iFrame);
 void play_original_video(const char * arg);
 SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp);
-
 int main(int argc, char ** argv)
 {
 	if (argc != 2)
@@ -228,6 +229,8 @@ int main(int argc, char ** argv)
 
 				filter_video(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
 
+				filter_average(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
+
 				//Convertendo de RFB para YUV
 				sws_scale (
 					out_sws_ctx, 
@@ -378,9 +381,10 @@ void filter_video(AVFrame * pFrame, int width, int height)
 	//Aplicando meu filtro de tons de cinza :P
 	for(y = 0; y < height; y++)
 		for (k = 0; k < 3 * width; k += 3)
-			gray_filter((pFrame->data[0] + y*pFrame->linesize[0]) + k);
+		{
+			gray_filter((pFrame->data[0] + y*pFrame->linesize[0] + k));
+		}
 }
-
 
 void gray_filter(uint8_t * bufferRGB)
 {
@@ -396,6 +400,34 @@ void gray_filter(uint8_t * bufferRGB)
 	*(bufferRGB + 2) = out;
 }
 
+void filter_average(AVFrame * pFrame, int width, int height)
+{
+	int y, k;
+	// Aplicando filtro dos borroes
+	for(y = 0; y < height; y++)
+	{
+		for(k = 0; k < 3 * width; k += 3)
+		{
+			uint8_t * center = (pFrame->data[0] + y*pFrame->linesize[0] + k);
+			uint8_t left = k > 0 ? *(pFrame->data[0] + y*pFrame->linesize[0] + k - 3) : 0;
+			uint8_t right = (k < 3 * width) ? *(pFrame->data[0] + y*pFrame->linesize[0] + k + 3) : 0;
+			uint8_t top = y > 0 ? *(pFrame->data[0] + (y - 1)*pFrame->linesize[0] + k) : 0;
+			uint8_t bottom = (y > height) ? *(pFrame->data[0] + (y + 1)*pFrame->linesize[0] + k) : 0;
+			blur_filter(center, left, right, top, bottom);
+		}
+	}
+}
+
+void blur_filter(uint8_t * center, uint8_t left, uint8_t right, uint8_t top, uint8_t bottom)
+{
+	float pixel;
+	uint8_t out;
+	pixel = (float) ((float) (1.0 * *(center)) + (float) (1.0 * left) + (float) (1.0 * right) + (float) (1.0 * top) + (float) (1.0 * bottom))/5.0f;
+	out = (uint8_t) pixel;
+	*(center) = out;
+	*(center + 1) = out;
+	*(center + 2) = out;
+}
 
 
 }
