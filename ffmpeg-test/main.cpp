@@ -214,7 +214,7 @@ int main(int argc, char ** argv)
 		    if (frameFinished) 
 		    {
 		    	SDL_LockYUVOverlay(bmp);
-				
+
 		   		//Converte a imagem de seu formato nativo para RGB
 		   		sws_scale
 				(
@@ -227,7 +227,7 @@ int main(int argc, char ** argv)
 					pFrameRGB->linesize
 				);
 
-				// filter_video(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
+				filter_video(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
 
 				filter_average(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
 
@@ -269,6 +269,7 @@ int main(int argc, char ** argv)
 				#endif
 				
 				counter_frames++;
+
 		     }	
     	}
     
@@ -391,9 +392,9 @@ void gray_filter(uint8_t * bufferRGB)
 	float r, g, b;
 	uint8_t out;
 
-	b = (float)(0.0722 * *(bufferRGB));
-	g = (float)(0.7152 * *(bufferRGB + 1));
-	r = (float)(0.2126 * *(bufferRGB + 2));
+	b = (float)(0.114f * (int) *(bufferRGB));
+	g = (float)(0.587f * (int) *(bufferRGB + 1));
+	r = (float)(0.299f * (int) *(bufferRGB + 2));
 	out = (uint8_t) (r + g + b);
 	*(bufferRGB) = out;
 	*(bufferRGB + 1) = out;
@@ -404,15 +405,15 @@ void filter_average(AVFrame * pFrame, int width, int height)
 {
 	int y, k;
 	// Aplicando filtro dos borroes
-	for(y = 0; y < height; y++)
+	for(y = 1; y < height - 1; y++)
 	{
-		for(k = 0; k < 3 * width; k += 3)
+		for(k = 3; k < 3 * (width - 1); k += 3)
 		{
 			uint8_t * center = (pFrame->data[0] + y*pFrame->linesize[0] + k);
-			uint8_t left = k > 0 ? *(pFrame->data[0] + y*pFrame->linesize[0] + k - 3) : 0;
-			uint8_t right = (k < 3 * width) ? *(pFrame->data[0] + y*pFrame->linesize[0] + k + 3) : 0;
-			uint8_t top = y > 0 ? *(pFrame->data[0] + (y - 1)*pFrame->linesize[0] + k) : 0;
-			uint8_t bottom = (y > height) ? *(pFrame->data[0] + (y + 1)*pFrame->linesize[0] + k) : 0;
+			uint8_t left = *(pFrame->data[0] + y*pFrame->linesize[0] + k - 3);
+			uint8_t right = *(pFrame->data[0] + y*pFrame->linesize[0] + k + 3);
+			uint8_t top = *(pFrame->data[0] + (y - 1)*pFrame->linesize[0] + k);
+			uint8_t bottom = *(pFrame->data[0] + (y + 1)*pFrame->linesize[0] + k);
 			blur_filter(center, left, right, top, bottom);
 		}
 	}
@@ -422,7 +423,7 @@ void blur_filter(uint8_t * center, uint8_t left, uint8_t right, uint8_t top, uin
 {
 	float pixel;
 	uint8_t out;
-	pixel = (float) ((float) (1.0 * *(center)) + (float) (1.0 * left) + (float) (1.0 * right) + (float) (1.0 * top) + (float) (1.0 * bottom))/5.0f;
+	pixel = (float) ((float) ((int) *(center)) + (float) ((int) left) + (float) ((int) right) + (float) ((int) top) + (float) ((int) bottom))/5.0f;
 	out = (uint8_t) pixel;
 	*(center) = out;
 	*(center + 1) = out;
