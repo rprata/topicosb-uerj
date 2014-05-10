@@ -8,6 +8,19 @@
 
 using namespace std;
 
+#ifdef __cplusplus
+ #define __STDC_CONSTANT_MACROS
+ #ifdef _STDINT_H
+  #undef _STDINT_H
+ #endif
+ # include <stdint.h>
+#endif
+
+
+
+#define CUDA_SAFE_CALL 
+#define ELEM(i,j,DIMX_) ((i)+(j)*(DIMX_))
+
 //TODO: Alocar memoria para device e host e transmitir
 //TODO: ver nomeclaturas para variaveis
 
@@ -23,11 +36,13 @@ extern "C" {
 #include <SDL_thread.h>
 
 AVFormatContext * pFormatCtx;
-AVCodecContext * pCodecCtx;
+AVCodecContext * pCodecCtx, * c = NULL;
 AVCodec * pCodec;
 AVFrame * pFrameRGB, * pDecodedFrame, * pOutputFrame;
 AVPacket packet;
 struct SwsContext * sws_ctx = NULL, * out_sws_ctx = NULL;
+
+int video_stream = -1;
 
 SDL_Overlay * bmp;
 SDL_Rect rect;
@@ -35,15 +50,22 @@ SDL_Event event;
 
 const char * filename;
 uint8_t * bufferRGB, * bufferYUV;
+uint8_t * outbuf;
 int numBytesRGB, numBytesYUV;
 int frameFinished;
 int counter_frames = 0;
 
-__host__ int setup_video(void);
+int outbuf_size = 300000, out_size;
+
+FILE * pFile;
+
+int blSizeX = 16, blSizeY = 16;
+
+__host__ int setup_video(const char * filename);
 __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp);
 __host__ void play_original_video(const char * arg);
-__host__ void filter_video(AVFrame * pFrame, int width, int height);
-_global__ void grayGPU( unsigned char *image, int width, int height );
+inline __host__ void filter_video(AVFrame * pFrame, int width, int height);
+__global__ void grayGPU(unsigned char *image, int width, int height);
 
 
 __host__ int main (int argc, char ** argv)
@@ -54,7 +76,8 @@ __host__ int main (int argc, char ** argv)
 		return -1;
 	}
 
-	setup_video(argv[1]);
+	if (setup_video(argv[1]) < 0)
+		return -1;
 
 	while(av_read_frame(pFormatCtx, &packet) >= 0)
 	{
@@ -154,14 +177,19 @@ __host__ int main (int argc, char ** argv)
     outbuf[1] = 0x00;
     outbuf[2] = 0x01;
     outbuf[3] = 0xb7;
+
 	fwrite(outbuf, 1, 4, pFile);
 
 	fclose(pFile);
 	free(outbuf);
 
+	av_free(bufferRGB);
+	av_free(bufferYUV);
+
 	//Fecha o codec
 	avcodec_close(pCodecCtx);
-
+	avcodec_close(c);
+	
 	//Fecha o arquivo de video
 	avformat_close_input(&pFormatCtx);
 
@@ -190,9 +218,7 @@ __host__ int setup_video(const char * filename)
   	//Informacao bruta sobre o arquivo de video;
 	av_dump_format(pFormatCtx, 0, filename, 0);
 
-	//Encontra o primeiro stream de video (video principal)
-	int video_stream = -1;
-	
+	//Encontra o primeiro stream de video (video principal)	
 	for (unsigned i = 0; i < pFormatCtx->nb_streams; i++)
 	{
 		if(pFormatCtx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO)
@@ -262,7 +288,6 @@ __host__ int setup_video(const char * filename)
 	avpicture_fill((AVPicture *) pFrameRGB, bufferRGB , PIX_FMT_RGB24, pCodecCtx->width, pCodecCtx->height);
 
 	//Preparando AVCodecContext de saida
-	AVCodecContext * c = NULL;
 	AVCodec * codec = avcodec_find_encoder(CODEC_ID_MPEG1VIDEO);
 
 	if (!codec)
@@ -284,15 +309,14 @@ __host__ int setup_video(const char * filename)
 
     if (avcodec_open2(c, codec, NULL) < 0) return -1;
 
-    FILE * pFile = fopen("out.mpg", "wb");
+    pFile = fopen("out.mpg", "wb");
 	if (!pFile) 
 	{
     	fprintf(stderr, "could not open out.mpg\n");
 	    return -1;
 	}
 
-	int outbuf_size = 300000, out_size;
-	uint8_t * outbuf = (uint8_t *) av_malloc(outbuf_size);
+	outbuf = (uint8_t *) av_malloc(outbuf_size);
 
 
 	//Criacao de contexto para converter um tipo RGB24 para YUV240P (preparacao para encoded)
@@ -322,7 +346,7 @@ __host__ int setup_video(const char * filename)
 		return -1;
 	}
 	
-	play_original_video(argv[1]);
+	play_original_video(filename);
 }
 
 __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp) 
@@ -333,7 +357,7 @@ __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay *
     	return NULL;
   	}
 
-  	SDL_Surface * screen;
+  	SDL_Surface '*' screen;
 
 	screen = SDL_SetVideoMode(1280, 720, 0, 0);
 	if (!screen) 
@@ -354,18 +378,36 @@ __host__ void play_original_video(const char * arg)
 	system(command);
 }
 
-__host__ void filter_video(AVFrame * pFrame, int width, int height)
+inline __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 {
-	int  y, k;
+	int  y, k, size = 3 * h_height * h_width;
+
+	unsigned char * d_image = NULL;
+	CUDA_SAFE_CALL(cudaMalloc((void**)&d_image, size));
+
 	//Aplicando meu filtro de tons de cinza :P
-	for(y = 0; y < height; y++)
-		for (k = 0; k < 3 * width; k += 3)
+	for(y = 0; y < h_height; y++)
+	{
+		for (k = 0; k < (3 * h_width); k += 3)
 		{
-			grayGPU((pFrame->data[0] + y*pFrame->linesize[0] + k), width, height);
+			// Calcula dimensoes da grid e dos blocos
+			dim3 blockSize( blSizeX, blSizeY );
+			int numBlocosX = h_width  / blockSize.x + ( h_width  % blockSize.x == 0 ? 0 : 1 );
+			int numBlocosY = h_height / blockSize.y + ( h_height % blockSize.y == 0 ? 0 : 1 );
+			dim3 gridSize( numBlocosX, numBlocosY, 1 );
+
+			cout << "Blocks (" << blockSize.x << "," << blockSize.y << ")\n";
+			cout << "Grid   (" << gridSize.x << "," << gridSize.y << ")\n";
+			
+			CUDA_SAFE_CALL(cudaMemcpy(d_image, pFrame->data[0], size, cudaMemcpyHostToDevice));
+			grayGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
+			CUDA_SAFE_CALL(cudaMemcpy(pFrame->data[0], d_image, size, cudaMemcpyDeviceToDevice));
+			CUDA_SAFE_CALL(cudaFree(d_image));
 		}
+	}
 }
 
-_global__ void grayGPU( unsigned char *image, int width, int height ) 
+__global__ void grayGPU(unsigned char * image, int width, int height) 
 {
 
 	int i = threadIdx.x + blockIdx.x*blockDim.x;

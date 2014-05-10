@@ -24,7 +24,7 @@ LDFLAGS   := -L$(SDKPATH)/C/common/lib/linux -L$(SDKPATH)/shared/lib/linux -L$(S
 		     -lz \
 			 -lavutil \
 			 -lm \
-LDFLAGS   += `sdl-config --cflags --libs`
+			`sdl-config --cflags --libs`
 
 CXFLAGS   := -I$(SDKPATH)/C/common/inc -I$(CUDAPATH)/include -I$(SDKPATH)/shared/inc -I$(SDKPATH)/C/common/inc
 
