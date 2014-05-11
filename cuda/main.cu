@@ -19,6 +19,7 @@ using namespace std;
 #define CUDA_SAFE_CALL 
 #define ELEM(i,j,DIMX_) ((i)+(j)*(DIMX_))
 
+#define NUM_BLUR 50
 
 extern "C" {
 
@@ -62,6 +63,7 @@ __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay *
 __host__ void play_original_video(const char * arg);
 __host__ void filter_video(AVFrame * pFrame, int width, int height);
 __global__ void grayGPU(unsigned char *image, int width, int height);
+__global__ void blurGPU(unsigned char * image, int width, int height); 
 
 
 __host__ int main (int argc, char ** argv)
@@ -389,6 +391,8 @@ __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 
 	CUDA_SAFE_CALL(cudaMemcpy(d_image, pFrame->data[0], size, cudaMemcpyHostToDevice));
 	grayGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
+	for (int i = 0; i < NUM_BLUR; i++)
+		blurGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
 	CUDA_SAFE_CALL(cudaMemcpy(pFrame->data[0], d_image, size, cudaMemcpyDeviceToHost));
 	
 	CUDA_SAFE_CALL(cudaFree(d_image));
@@ -412,7 +416,35 @@ __global__ void grayGPU(unsigned char * image, int width, int height)
 	 	image[ idx+1 ] = (unsigned char)gray;
 	 	image[ idx+2 ] = (unsigned char)gray;		
 	 }
-	
+}
+
+__global__ void blurGPU(unsigned char * image, int width, int height) 
+{
+
+	int i = threadIdx.x + blockIdx.x*blockDim.x;
+	int j = threadIdx.y + blockIdx.y*blockDim.y;
+
+	if ((i < (width - 1)) && (j < (height - 1))) 
+	{
+	 	int idx = 3*ELEM(i, j, width);
+	 	int center = image[ idx ];
+	 	idx = 3*ELEM(i - 1, j, width);
+	 	int left = image[ idx ];
+	 	idx = 3*ELEM(i + 1, j, width);
+	 	int right = image[ idx ];
+	 	idx = 3*ELEM(i, j + 1, width);
+	 	int top = image[ idx ];
+	 	idx = 3*ELEM(i, j - 1, width);
+	 	int bottom = image[ idx ];
+
+	 	idx = 3*ELEM(i, j, width);
+
+		float gg = (float) ((float) center + (float) left + (float) right + (float) top + (float) bottom)/5.0f;
+	 	int blur = (int)gg;
+	 	image[ idx   ] = (unsigned char)blur;
+	 	image[ idx+1 ] = (unsigned char)blur;
+	 	image[ idx+2 ] = (unsigned char)blur;		
+	 }
 }
 
 }
