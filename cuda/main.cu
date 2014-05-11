@@ -189,7 +189,7 @@ __host__ int main (int argc, char ** argv)
 	//Fecha o codec
 	avcodec_close(pCodecCtx);
 	avcodec_close(c);
-	
+
 	//Fecha o arquivo de video
 	avformat_close_input(&pFormatCtx);
 
@@ -357,7 +357,7 @@ __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay *
     	return NULL;
   	}
 
-  	SDL_Surface '*' screen;
+  	SDL_Surface * screen;
 
 	screen = SDL_SetVideoMode(1280, 720, 0, 0);
 	if (!screen) 
