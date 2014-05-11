@@ -16,13 +16,9 @@ using namespace std;
  # include <stdint.h>
 #endif
 
-
-
 #define CUDA_SAFE_CALL 
 #define ELEM(i,j,DIMX_) ((i)+(j)*(DIMX_))
 
-//TODO: Alocar memoria para device e host e transmitir
-//TODO: ver nomeclaturas para variaveis
 
 extern "C" {
 
@@ -64,7 +60,7 @@ int blSizeX = 16, blSizeY = 16;
 __host__ int setup_video(const char * filename);
 __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp);
 __host__ void play_original_video(const char * arg);
-inline __host__ void filter_video(AVFrame * pFrame, int width, int height);
+__host__ void filter_video(AVFrame * pFrame, int width, int height);
 __global__ void grayGPU(unsigned char *image, int width, int height);
 
 
@@ -346,7 +342,7 @@ __host__ int setup_video(const char * filename)
 		return -1;
 	}
 	
-	play_original_video(filename);
+	// play_original_video(filename);
 }
 
 __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp) 
@@ -378,33 +374,24 @@ __host__ void play_original_video(const char * arg)
 	system(command);
 }
 
-inline __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
+__host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 {
-	int  y, k, size = 3 * h_height * h_width;
+	int  size = 3 * h_height * h_width;
 
 	unsigned char * d_image = NULL;
 	CUDA_SAFE_CALL(cudaMalloc((void**)&d_image, size));
 
-	//Aplicando meu filtro de tons de cinza :P
-	for(y = 0; y < h_height; y++)
-	{
-		for (k = 0; k < (3 * h_width); k += 3)
-		{
-			// Calcula dimensoes da grid e dos blocos
-			dim3 blockSize( blSizeX, blSizeY );
-			int numBlocosX = h_width  / blockSize.x + ( h_width  % blockSize.x == 0 ? 0 : 1 );
-			int numBlocosY = h_height / blockSize.y + ( h_height % blockSize.y == 0 ? 0 : 1 );
-			dim3 gridSize( numBlocosX, numBlocosY, 1 );
+	// Calcula dimensoes da grid e dos blocos
+	dim3 blockSize( blSizeX, blSizeY );
+	int numBlocosX = h_width  / blockSize.x + ( h_width  % blockSize.x == 0 ? 0 : 1 );
+	int numBlocosY = h_height / blockSize.y + ( h_height % blockSize.y == 0 ? 0 : 1 );
+	dim3 gridSize( numBlocosX, numBlocosY, 1 );
 
-			cout << "Blocks (" << blockSize.x << "," << blockSize.y << ")\n";
-			cout << "Grid   (" << gridSize.x << "," << gridSize.y << ")\n";
-			
-			CUDA_SAFE_CALL(cudaMemcpy(d_image, pFrame->data[0], size, cudaMemcpyHostToDevice));
-			grayGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
-			CUDA_SAFE_CALL(cudaMemcpy(pFrame->data[0], d_image, size, cudaMemcpyDeviceToDevice));
-			CUDA_SAFE_CALL(cudaFree(d_image));
-		}
-	}
+	CUDA_SAFE_CALL(cudaMemcpy(d_image, pFrame->data[0], size, cudaMemcpyHostToDevice));
+	grayGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
+	CUDA_SAFE_CALL(cudaMemcpy(pFrame->data[0], d_image, size, cudaMemcpyDeviceToHost));
+	
+	CUDA_SAFE_CALL(cudaFree(d_image));
 }
 
 __global__ void grayGPU(unsigned char * image, int width, int height) 
@@ -413,9 +400,9 @@ __global__ void grayGPU(unsigned char * image, int width, int height)
 	int i = threadIdx.x + blockIdx.x*blockDim.x;
 	int j = threadIdx.y + blockIdx.y*blockDim.y;
 
-	if( i < width && j < height ) {
+	if(i < width && j < height) {
 
-	 	int idx = 3*ELEM( i, j, width );
+	 	int idx = 3*ELEM(i, j, width);
 	 	int r = image[ idx+2 ];
 	 	int g = image[ idx+1 ];
 	 	int b = image[ idx   ];
@@ -423,8 +410,7 @@ __global__ void grayGPU(unsigned char * image, int width, int height)
 	 	int gray = (int)gg;
 	 	image[ idx   ] = (unsigned char)gray;
 	 	image[ idx+1 ] = (unsigned char)gray;
-	 	image[ idx+2 ] = (unsigned char)gray;
-		
+	 	image[ idx+2 ] = (unsigned char)gray;		
 	 }
 	
 }
