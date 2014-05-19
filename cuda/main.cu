@@ -381,7 +381,7 @@ __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 	int  size = 3 * h_height * h_width;
 
 	unsigned char * d_image = NULL;
-	CUDA_SAFE_CALL(cudaMalloc((void**)&d_image, size));
+	CUDA_SAFE_CALL(cudaHostAlloc((void**)&d_image, size, cudaHostAllocWriteCombined|cudaHostAllocMapped));
 
 	// Calcula dimensoes da grid e dos blocos
 	dim3 blockSize( blSizeX, blSizeY );
@@ -395,7 +395,7 @@ __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 		blurGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
 	CUDA_SAFE_CALL(cudaMemcpy(pFrame->data[0], d_image, size, cudaMemcpyDeviceToHost));
 	
-	CUDA_SAFE_CALL(cudaFree(d_image));
+	CUDA_SAFE_CALL(cudaFreeHost(d_image));
 }
 
 __global__ void grayGPU(unsigned char * image, int width, int height) 
