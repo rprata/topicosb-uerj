@@ -387,7 +387,7 @@ __host__ void play_original_video(const char * arg)
 __host__ void cuda_init(int h_width, int h_height)
 {
 	int  size = 3 * h_height * h_width;
-	CUDA_SAFE_CALL(cudaMallocHost((void**) &pFrameRGB->data[0], size));
+	CUDA_SAFE_CALL(cudaHostAlloc((void**) &pFrameRGB->data[0], size, cudaHostAllocPortable));
 	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image, size));
 }
 
