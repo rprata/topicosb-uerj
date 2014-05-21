@@ -58,10 +58,14 @@ FILE * pFile;
 
 int blSizeX = 16, blSizeY = 16;
 
+unsigned char * d_image = NULL;
+
 __host__ int setup_video(const char * filename);
 __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp);
 __host__ void play_original_video(const char * arg);
 __host__ void filter_video(AVFrame * pFrame, int width, int height);
+__host__ void cuda_init(int h_height, int h_width);
+__host__ void cuda_finish();
 __global__ void grayGPU(unsigned char *image, int width, int height);
 __global__ void blurGPU(unsigned char * image, int width, int height); 
 
@@ -76,6 +80,8 @@ __host__ int main (int argc, char ** argv)
 
 	if (setup_video(argv[1]) < 0)
 		return -1;
+
+	cuda_init(pCodecCtx->width, pCodecCtx->height);
 
 	while(av_read_frame(pFormatCtx, &packet) >= 0)
 	{
@@ -180,6 +186,8 @@ __host__ int main (int argc, char ** argv)
 
 	fclose(pFile);
 	free(outbuf);
+
+	cuda_finish();
 
 	av_free(bufferRGB);
 	av_free(bufferYUV);
@@ -376,12 +384,22 @@ __host__ void play_original_video(const char * arg)
 	system(command);
 }
 
+__host__ void cuda_init(int h_width, int h_height)
+{
+	int  size = 3 * h_height * h_width;
+	CUDA_SAFE_CALL(cudaMallocHost((void**) &pFrameRGB->data[0], size));
+	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image, size));
+}
+
+__host__ void cuda_finish() 
+{
+	CUDA_SAFE_CALL(cudaFreeHost(pFrameRGB->data[0]));
+	CUDA_SAFE_CALL(cudaFree(d_image));
+}
+
 __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 {
 	int  size = 3 * h_height * h_width;
-
-	unsigned char * d_image = NULL;
-	CUDA_SAFE_CALL(cudaHostAlloc((void**)&d_image, size, cudaHostAllocWriteCombined|cudaHostAllocMapped));
 
 	// Calcula dimensoes da grid e dos blocos
 	dim3 blockSize( blSizeX, blSizeY );
@@ -389,13 +407,11 @@ __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 	int numBlocosY = h_height / blockSize.y + ( h_height % blockSize.y == 0 ? 0 : 1 );
 	dim3 gridSize( numBlocosX, numBlocosY, 1 );
 
-	CUDA_SAFE_CALL(cudaMemcpy(d_image, pFrame->data[0], size, cudaMemcpyHostToDevice));
+	CUDA_SAFE_CALL(cudaMemcpy(d_image, pFrameRGB->data[0], size, cudaMemcpyHostToDevice));
 	grayGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
 	for (int i = 0; i < NUM_BLUR; i++)
-		blurGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
-	CUDA_SAFE_CALL(cudaMemcpy(pFrame->data[0], d_image, size, cudaMemcpyDeviceToHost));
-	
-	CUDA_SAFE_CALL(cudaFreeHost(d_image));
+		blurGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);	
+	CUDA_SAFE_CALL(cudaMemcpy(pFrameRGB->data[0], d_image, size, cudaMemcpyDeviceToHost));
 }
 
 __global__ void grayGPU(unsigned char * image, int width, int height) 
