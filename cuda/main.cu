@@ -381,7 +381,7 @@ __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 	int  size = 3 * h_height * h_width;
 
 	unsigned char * d_image = NULL;
-	CUDA_SAFE_CALL(cudaHostAlloc((void**)&d_image, size, cudaHostAllocWriteCombined|cudaHostAllocMapped));
+	CUDA_SAFE_CALL(cudaMalloc((void**)&d_image, size));
 
 	// Calcula dimensoes da grid e dos blocos
 	dim3 blockSize( blSizeX, blSizeY );
