@@ -114,8 +114,7 @@ __host__ int main (int argc, char ** argv)
 
 				filter_video(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
 
-			#ifdef SDL_INTERFACE	
-
+			#if defined(SDL_INTERFACE) || defined(SAVE_VIDEO)
 				//Convertendo de RGB para YUV
 				sws_scale (
 					out_sws_ctx, 
@@ -126,8 +125,10 @@ __host__ int main (int argc, char ** argv)
         			pOutputFrame->data, 
         			pOutputFrame->linesize
         		);	
+			#endif
 
-
+			#ifdef SDL_INTERFACE	
+				
 	    		pOutputFrame->data[0] = bmp->pixels[0];
 				pOutputFrame->data[1] = bmp->pixels[2];
 				pOutputFrame->data[2] = bmp->pixels[1];
