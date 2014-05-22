@@ -16,7 +16,7 @@ using namespace std;
  # include <stdint.h>
 #endif
 
-#define CUDA_SAFE_CALL 
+#define CUDA_SAFE_CALL
 #define ELEM(i,j,DIMX_) ((i)+(j)*(DIMX_))
 
 #define NUM_BLUR 50
@@ -88,13 +88,17 @@ __host__ int main (int argc, char ** argv)
 	  	//Testa se e unm pacote com de stream de video
 	  	if(packet.stream_index == video_stream) 
 	  	{	  		
+	  		cout << "decode frame: " << counter_frames << endl;
 			// Decode frame de video
 		    avcodec_decode_video2(pCodecCtx, pDecodedFrame, &frameFinished, &packet);
 		    
 		    //Testa se ja existe um quadro de video
 		    if (frameFinished) 
 		    {
+		    
+		    #ifdef SDL_INTERFACE	
 		    	SDL_LockYUVOverlay(bmp);
+		    #endif
 
 		   		//Converte a imagem de seu formato nativo para RGB
 		   		sws_scale
@@ -110,7 +114,9 @@ __host__ int main (int argc, char ** argv)
 
 				filter_video(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
 
-				//Convertendo de RFB para YUV
+			#ifdef SDL_INTERFACE	
+
+				//Convertendo de RGB para YUV
 				sws_scale (
 					out_sws_ctx, 
 					(uint8_t const * const *) pFrameRGB->data, 
@@ -120,6 +126,7 @@ __host__ int main (int argc, char ** argv)
         			pOutputFrame->data, 
         			pOutputFrame->linesize
         		);	
+
 
 	    		pOutputFrame->data[0] = bmp->pixels[0];
 				pOutputFrame->data[1] = bmp->pixels[2];
@@ -138,14 +145,15 @@ __host__ int main (int argc, char ** argv)
 
 				SDL_DisplayYUVOverlay(bmp, &rect);
 
+			#endif
 
-				#ifdef SAVE_VIDEO
+			#ifdef SAVE_VIDEO
 				//codigo para salvar frames em uma saida
 				fflush(stdout);
 				out_size = avcodec_encode_video(c, outbuf, outbuf_size, pOutputFrame);
 				std::cout << "write frame " << counter_frames << "(size = " << out_size << ")" << std::endl;
 				fwrite(outbuf, 1, out_size, pFile);
-				#endif
+			#endif
 				
 				counter_frames++;
 
@@ -154,7 +162,8 @@ __host__ int main (int argc, char ** argv)
     
   		// Libera o pacote alocado pelo pacote
   		av_free_packet(&packet);
-  		
+  	
+  	#ifdef SDL_INTERFACE	
   		SDL_PollEvent(&event);
 	    
 	    switch(event.type) 
@@ -165,8 +174,10 @@ __host__ int main (int argc, char ** argv)
 	    	default:
 	      		break;
 	    }
+	#endif
 	}
 
+#ifdef SAVE_VIDEO	
 	//captura frames atrasados 
     for(; out_size; counter_frames++) { 
         fflush(stdout); 
@@ -181,10 +192,13 @@ __host__ int main (int argc, char ** argv)
     outbuf[1] = 0x00;
     outbuf[2] = 0x01;
     outbuf[3] = 0xb7;
+#endif
 
+#ifdef SAVE_VIDEO
 	fwrite(outbuf, 1, 4, pFile);
-
 	fclose(pFile);
+#endif
+
 	free(outbuf);
 
 	cuda_finish();
@@ -315,13 +329,14 @@ __host__ int setup_video(const char * filename)
 
     if (avcodec_open2(c, codec, NULL) < 0) return -1;
 
+#ifdef SAVE_VIDEO
     pFile = fopen("out.mpg", "wb");
 	if (!pFile) 
 	{
     	fprintf(stderr, "could not open out.mpg\n");
 	    return -1;
 	}
-
+#endif
 	outbuf = (uint8_t *) av_malloc(outbuf_size);
 
 
@@ -344,7 +359,9 @@ __host__ int setup_video(const char * filename)
 	);
 
 	avpicture_fill((AVPicture *) pOutputFrame, bufferYUV , PIX_FMT_YUV420P, c->width, c->height);
-	
+
+
+#ifdef SDL_INTERFACE	
 	bmp = init_sdl_window(pCodecCtx, bmp);
 	
 	if (bmp == NULL) 
@@ -353,6 +370,8 @@ __host__ int setup_video(const char * filename)
 	}
 	
 	// play_original_video(filename);
+#endif
+
 }
 
 __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp) 
