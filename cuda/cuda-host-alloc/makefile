@@ -1,4 +1,4 @@
-EXECUTABLE := main
+EXECUTABLE := VideoStream
 
 SOURCES := $(EXECUTABLE).cu ../rf-time.cc
 OBJS    := $(EXECUTABLE).o  ../rf-time.o

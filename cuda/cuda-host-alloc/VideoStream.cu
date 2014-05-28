@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include ".../rf-time.h"
+#include "../rf-time.h"
 
 using namespace std;
 
@@ -19,7 +19,10 @@ using namespace std;
 #define CUDA_SAFE_CALL
 #define ELEM(i,j,DIMX_) ((i)+(j)*(DIMX_))
 
-#define NUM_BLUR 50
+#define NUM_BLUR 0
+
+cudaEvent_t     start, stop;
+float           elapsedTime;
 
 extern "C" {
 
@@ -82,13 +85,13 @@ __host__ int main (int argc, char ** argv)
 		return -1;
 
 	cuda_init(pCodecCtx->width, pCodecCtx->height);
-
+	double start_time;
 	while(av_read_frame(pFormatCtx, &packet) >= 0)
 	{
 	  	//Testa se e unm pacote com de stream de video
 	  	if(packet.stream_index == video_stream) 
 	  	{	  		
-	  		cout << "decode frame: " << counter_frames << endl;
+	  		start_time = get_clock_msec();
 			// Decode frame de video
 		    avcodec_decode_video2(pCodecCtx, pDecodedFrame, &frameFinished, &packet);
 		    
@@ -155,7 +158,7 @@ __host__ int main (int argc, char ** argv)
 				std::cout << "write frame " << counter_frames << "(size = " << out_size << ")" << std::endl;
 				fwrite(outbuf, 1, out_size, pFile);
 			#endif
-				
+				cout << "Frame [" << counter_frames <<"] : " << get_clock_msec() - start_time<< " ms" << endl;
 				counter_frames++;
 
 		     }	
@@ -409,6 +412,9 @@ __host__ void cuda_init(int h_width, int h_height)
 	int  size = 3 * h_height * h_width;
 	CUDA_SAFE_CALL(cudaHostAlloc((void**) &pFrameRGB->data[0], size, cudaHostAllocPortable));
 	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image, size));
+
+	CUDA_SAFE_CALL(cudaEventCreate(&start));
+	CUDA_SAFE_CALL(cudaEventCreate(&stop));
 }
 
 __host__ void cuda_finish() 
@@ -419,6 +425,7 @@ __host__ void cuda_finish()
 
 __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 {
+	cudaEventRecord(start, 0);
 	int  size = 3 * h_height * h_width;
 
 	// Calcula dimensoes da grid e dos blocos
@@ -432,6 +439,11 @@ __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 	for (int i = 0; i < NUM_BLUR; i++)
 		blurGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);	
 	CUDA_SAFE_CALL(cudaMemcpy(pFrameRGB->data[0], d_image, size, cudaMemcpyDeviceToHost));
+
+	CUDA_SAFE_CALL(cudaEventRecord(stop, 0));
+	CUDA_SAFE_CALL(cudaEventSynchronize(stop ));
+	CUDA_SAFE_CALL(cudaEventElapsedTime(&elapsedTime, start, stop));
+	printf("Time taken:  %3.1f ms\n", elapsedTime);
 }
 
 __global__ void grayGPU(unsigned char * image, int width, int height) 
