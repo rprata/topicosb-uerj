@@ -1,6 +1,6 @@
-EXECUTABLE := main
+EXECUTABLE := VideoStream
 
-SOURCES := $(EXECUTABLE).cu rf-time.cc
+SOURCES := $(EXECUTABLE).cu ../rf-time.cc
 OBJS    := $(EXECUTABLE).o  rf-time.o
 
 CUDAPATH     := /usr/local/cuda

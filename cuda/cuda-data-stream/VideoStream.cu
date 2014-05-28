@@ -16,12 +16,16 @@ using namespace std;
  # include <stdint.h>
 #endif
 
+
+#define SDL_INTERFACE
+
 #define CUDA_SAFE_CALL
 #define ELEM(i,j,DIMX_) ((i)+(j)*(DIMX_))
 
 #define NUM_BLUR 50
 
 cudaEvent_t     start, stop;
+cudaStream_t    stream0, stream1;
 float           elapsedTime;
 
 extern "C" {
@@ -61,7 +65,8 @@ FILE * pFile;
 
 int blSizeX = 16, blSizeY = 16;
 
-unsigned char * d_image = NULL;
+unsigned char * d_image1 = NULL;
+unsigned char * d_image2 = NULL;
 
 __host__ int setup_video(const char * filename);
 __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp);
@@ -410,8 +415,12 @@ __host__ void play_original_video(const char * arg)
 __host__ void cuda_init(int h_width, int h_height)
 {
 	int  size = 3 * h_height * h_width;
-	CUDA_SAFE_CALL(cudaHostAlloc((void**) &pFrameRGB->data[0], size, cudaHostAllocPortable));
-	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image, size));
+	CUDA_SAFE_CALL(cudaHostAlloc((void**) &pFrameRGB->data[0], size, cudaHostAllocDefault));
+	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image1, size/2));
+	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image2, size/2));
+
+	CUDA_SAFE_CALL(cudaStreamCreate(&stream0));
+	CUDA_SAFE_CALL(cudaStreamCreate(&stream1));
 
 	CUDA_SAFE_CALL(cudaEventCreate(&start));
 	CUDA_SAFE_CALL(cudaEventCreate(&stop));
@@ -420,28 +429,45 @@ __host__ void cuda_init(int h_width, int h_height)
 __host__ void cuda_finish() 
 {
 	CUDA_SAFE_CALL(cudaFreeHost(pFrameRGB->data[0]));
-	CUDA_SAFE_CALL(cudaFree(d_image));
+	CUDA_SAFE_CALL(cudaFree(d_image1));
+	CUDA_SAFE_CALL(cudaFree(d_image2));
+
+	CUDA_SAFE_CALL(cudaStreamDestroy(stream0));
+	CUDA_SAFE_CALL(cudaStreamDestroy(stream1));
 }
 
 __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 {
 	cudaEventRecord(start, 0);
 	int  size = 3 * h_height * h_width;
+	int N = size/2;
+
+	// enqueue copies of a in stream0 and stream1
+	CUDA_SAFE_CALL(cudaMemcpyAsync(d_image1, pFrameRGB->data[0], N, cudaMemcpyHostToDevice, stream0));
+	CUDA_SAFE_CALL(cudaMemcpyAsync(d_image2, pFrameRGB->data[0] + N, N, cudaMemcpyHostToDevice, stream1));
 
 	// Calcula dimensoes da grid e dos blocos
 	dim3 blockSize( blSizeX, blSizeY );
 	int numBlocosX = h_width  / blockSize.x + ( h_width  % blockSize.x == 0 ? 0 : 1 );
 	int numBlocosY = h_height / blockSize.y + ( h_height % blockSize.y == 0 ? 0 : 1 );
-	dim3 gridSize( numBlocosX, numBlocosY, 1 );
+	dim3 gridSize( numBlocosX, numBlocosY / 2, 1 );
+	
+	// enqueue kernels in stream0 and stream1   
+	grayGPU<<< gridSize, blockSize, 0, stream0 >>>(d_image1, h_width, h_height/2);
+	grayGPU<<< gridSize, blockSize, 0, stream1 >>>(d_image2, h_width, h_height/2);
 
-	CUDA_SAFE_CALL(cudaMemcpy(d_image, pFrameRGB->data[0], size, cudaMemcpyHostToDevice));
-	grayGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
 	for (int i = 0; i < NUM_BLUR; i++)
-		blurGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);	
-	CUDA_SAFE_CALL(cudaMemcpy(pFrameRGB->data[0], d_image, size, cudaMemcpyDeviceToHost));
+	{
+		blurGPU<<< gridSize, blockSize, 0, stream0 >>>(d_image1, h_width, h_height/2);	
+		blurGPU<<< gridSize, blockSize, 0, stream1 >>>(d_image2, h_width, h_height/2);	
+	}
+
+	// enqueue copies of c from device to locked memory
+	CUDA_SAFE_CALL(cudaMemcpyAsync(pFrameRGB->data[0], d_image1, N, cudaMemcpyDeviceToHost, stream0));
+	CUDA_SAFE_CALL(cudaMemcpyAsync(pFrameRGB->data[0] + N, d_image2, N, cudaMemcpyDeviceToHost, stream1));
 
 	CUDA_SAFE_CALL(cudaEventRecord(stop, 0));
-	CUDA_SAFE_CALL(cudaEventSynchronize(stop ));
+	CUDA_SAFE_CALL(cudaEventSynchronize(stop));
 	CUDA_SAFE_CALL(cudaEventElapsedTime(&elapsedTime, start, stop));
 	printf("Time taken:  %3.1f ms\n", elapsedTime);
 }

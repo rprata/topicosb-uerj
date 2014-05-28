@@ -16,10 +16,13 @@ using namespace std;
  # include <stdint.h>
 #endif
 
-#define CUDA_SAFE_CALL 
+#define CUDA_SAFE_CALL
 #define ELEM(i,j,DIMX_) ((i)+(j)*(DIMX_))
 
 #define NUM_BLUR 50
+
+cudaEvent_t     start, stop;
+float           elapsedTime;
 
 extern "C" {
 
@@ -58,10 +61,14 @@ FILE * pFile;
 
 int blSizeX = 16, blSizeY = 16;
 
+unsigned char * d_image = NULL;
+
 __host__ int setup_video(const char * filename);
 __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp);
 __host__ void play_original_video(const char * arg);
 __host__ void filter_video(AVFrame * pFrame, int width, int height);
+__host__ void cuda_init(int h_height, int h_width);
+__host__ void cuda_finish();
 __global__ void grayGPU(unsigned char *image, int width, int height);
 __global__ void blurGPU(unsigned char * image, int width, int height); 
 
@@ -77,18 +84,24 @@ __host__ int main (int argc, char ** argv)
 	if (setup_video(argv[1]) < 0)
 		return -1;
 
+	cuda_init(pCodecCtx->width, pCodecCtx->height);
+	double start_time;
 	while(av_read_frame(pFormatCtx, &packet) >= 0)
 	{
 	  	//Testa se e unm pacote com de stream de video
 	  	if(packet.stream_index == video_stream) 
 	  	{	  		
+	  		start_time = get_clock_msec();
 			// Decode frame de video
 		    avcodec_decode_video2(pCodecCtx, pDecodedFrame, &frameFinished, &packet);
 		    
 		    //Testa se ja existe um quadro de video
 		    if (frameFinished) 
 		    {
+		    
+		    #ifdef SDL_INTERFACE	
 		    	SDL_LockYUVOverlay(bmp);
+		    #endif
 
 		   		//Converte a imagem de seu formato nativo para RGB
 		   		sws_scale
@@ -104,7 +117,8 @@ __host__ int main (int argc, char ** argv)
 
 				filter_video(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
 
-				//Convertendo de RFB para YUV
+			#if defined(SDL_INTERFACE) || defined(SAVE_VIDEO)
+				//Convertendo de RGB para YUV
 				sws_scale (
 					out_sws_ctx, 
 					(uint8_t const * const *) pFrameRGB->data, 
@@ -114,7 +128,10 @@ __host__ int main (int argc, char ** argv)
         			pOutputFrame->data, 
         			pOutputFrame->linesize
         		);	
+			#endif
 
+			#ifdef SDL_INTERFACE	
+				
 	    		pOutputFrame->data[0] = bmp->pixels[0];
 				pOutputFrame->data[1] = bmp->pixels[2];
 				pOutputFrame->data[2] = bmp->pixels[1];
@@ -132,15 +149,16 @@ __host__ int main (int argc, char ** argv)
 
 				SDL_DisplayYUVOverlay(bmp, &rect);
 
+			#endif
 
-				#ifdef SAVE_VIDEO
+			#ifdef SAVE_VIDEO
 				//codigo para salvar frames em uma saida
 				fflush(stdout);
 				out_size = avcodec_encode_video(c, outbuf, outbuf_size, pOutputFrame);
 				std::cout << "write frame " << counter_frames << "(size = " << out_size << ")" << std::endl;
 				fwrite(outbuf, 1, out_size, pFile);
-				#endif
-				
+			#endif
+				cout << "Frame [" << counter_frames <<"] : " << get_clock_msec() - start_time<< " ms" << endl;
 				counter_frames++;
 
 		     }	
@@ -148,7 +166,8 @@ __host__ int main (int argc, char ** argv)
     
   		// Libera o pacote alocado pelo pacote
   		av_free_packet(&packet);
-  		
+  	
+  	#ifdef SDL_INTERFACE	
   		SDL_PollEvent(&event);
 	    
 	    switch(event.type) 
@@ -159,8 +178,10 @@ __host__ int main (int argc, char ** argv)
 	    	default:
 	      		break;
 	    }
+	#endif
 	}
 
+#ifdef SAVE_VIDEO	
 	//captura frames atrasados 
     for(; out_size; counter_frames++) { 
         fflush(stdout); 
@@ -175,11 +196,16 @@ __host__ int main (int argc, char ** argv)
     outbuf[1] = 0x00;
     outbuf[2] = 0x01;
     outbuf[3] = 0xb7;
+#endif
 
+#ifdef SAVE_VIDEO
 	fwrite(outbuf, 1, 4, pFile);
-
 	fclose(pFile);
+#endif
+
 	free(outbuf);
+
+	cuda_finish();
 
 	av_free(bufferRGB);
 	av_free(bufferYUV);
@@ -307,13 +333,14 @@ __host__ int setup_video(const char * filename)
 
     if (avcodec_open2(c, codec, NULL) < 0) return -1;
 
+#ifdef SAVE_VIDEO
     pFile = fopen("out.mpg", "wb");
 	if (!pFile) 
 	{
     	fprintf(stderr, "could not open out.mpg\n");
 	    return -1;
 	}
-
+#endif
 	outbuf = (uint8_t *) av_malloc(outbuf_size);
 
 
@@ -336,7 +363,9 @@ __host__ int setup_video(const char * filename)
 	);
 
 	avpicture_fill((AVPicture *) pOutputFrame, bufferYUV , PIX_FMT_YUV420P, c->width, c->height);
-	
+
+
+#ifdef SDL_INTERFACE	
 	bmp = init_sdl_window(pCodecCtx, bmp);
 	
 	if (bmp == NULL) 
@@ -345,6 +374,8 @@ __host__ int setup_video(const char * filename)
 	}
 	
 	// play_original_video(filename);
+#endif
+
 }
 
 __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp) 
@@ -376,12 +407,25 @@ __host__ void play_original_video(const char * arg)
 	system(command);
 }
 
-__host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
+__host__ void cuda_init(int h_width, int h_height)
 {
 	int  size = 3 * h_height * h_width;
 
-	unsigned char * d_image = NULL;
-	CUDA_SAFE_CALL(cudaMalloc((void**)&d_image, size));
+	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image, size));
+
+	CUDA_SAFE_CALL(cudaEventCreate(&start));
+	CUDA_SAFE_CALL(cudaEventCreate(&stop));
+}
+
+__host__ void cuda_finish() 
+{
+	CUDA_SAFE_CALL(cudaFree(d_image));
+}
+
+__host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
+{
+	cudaEventRecord(start, 0);
+	int  size = 3 * h_height * h_width;
 
 	// Calcula dimensoes da grid e dos blocos
 	dim3 blockSize( blSizeX, blSizeY );
@@ -395,7 +439,11 @@ __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 		blurGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
 	CUDA_SAFE_CALL(cudaMemcpy(pFrame->data[0], d_image, size, cudaMemcpyDeviceToHost));
 	
-	CUDA_SAFE_CALL(cudaFreeHost(d_image));
+
+	CUDA_SAFE_CALL(cudaEventRecord(stop, 0));
+	CUDA_SAFE_CALL(cudaEventSynchronize(stop ));
+	CUDA_SAFE_CALL(cudaEventElapsedTime(&elapsedTime, start, stop));
+	printf("Time taken:  %3.1f ms\n", elapsedTime);
 }
 
 __global__ void grayGPU(unsigned char * image, int width, int height) 

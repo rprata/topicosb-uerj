@@ -1,7 +1,7 @@
 EXECUTABLE := VideoStream
 
 SOURCES := $(EXECUTABLE).cu ../rf-time.cc
-OBJS    := $(EXECUTABLE).o  ../rf-time.o
+OBJS    := $(EXECUTABLE).o  rf-time.o
 
 CUDAPATH     := /usr/local/cuda
 SDKPATH      := $(CUDAPATH)/SDK
