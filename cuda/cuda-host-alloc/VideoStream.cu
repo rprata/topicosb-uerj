@@ -19,7 +19,7 @@ using namespace std;
 #define CUDA_SAFE_CALL
 #define ELEM(i,j,DIMX_) ((i)+(j)*(DIMX_))
 
-#define NUM_BLUR 50
+#define NUM_BLUR 10000
 
 cudaEvent_t     start, stop;
 float           elapsedTime;
