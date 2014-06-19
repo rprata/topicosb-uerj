@@ -1,5 +1,6 @@
 #include <cuda.h>
 #include <iostream>
+#include <fstream>
 #include <iomanip>
 #include <stdlib.h>
 #include <stdio.h>
@@ -8,7 +9,7 @@
 
 using namespace std;
 
-#define SDL_INTERFACE
+// #define SDL_INTERFACE
 
 #ifdef __cplusplus
  #define __STDC_CONSTANT_MACROS
@@ -21,7 +22,7 @@ using namespace std;
 #define CUDA_SAFE_CALL
 #define ELEM(i,j,DIMX_) ((i)+(j)*(DIMX_))
 
-#define NUM_BLUR 10000
+#define NUM_BLUR 0
 
 cudaEvent_t     start, stop;
 float           elapsedTime;
@@ -64,6 +65,8 @@ FILE * pFile;
 int blSizeX = 16, blSizeY = 16;
 
 unsigned char * d_image = NULL;
+
+ofstream logfile;
 
 __host__ int setup_video(const char * filename);
 __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp);
@@ -162,8 +165,8 @@ __host__ int main (int argc, char ** argv)
 				std::cout << "write frame " << counter_frames << "(size = " << out_size << ")" << std::endl;
 				fwrite(outbuf, 1, out_size, pFile);
 			#endif
-				cout << "Frame [" << counter_frames <<"] : " << get_clock_msec() - start_time<< " ms" << endl;
-				counter_frames++;
+				// cout << "Frame [" << counter_frames <<"] : " << get_clock_msec() - start_time<< " ms" << endl;
+				// counter_frames++;
 
 		     }	
     	}
@@ -436,12 +439,15 @@ __host__ int cuda_init(int h_width, int h_height)
 	CUDA_SAFE_CALL(cudaEventCreate(&start));
 	CUDA_SAFE_CALL(cudaEventCreate(&stop));
 
+	logfile.open("log.txt", ofstream::out | ofstream::app);
+
 	return 0;
 }
 
 __host__ void cuda_finish() 
 {
 	CUDA_SAFE_CALL(cudaFreeHost(pFrameRGB->data[0]));
+	logfile.close();
 	// CUDA_SAFE_CALL(cudaFree(d_image));
 }
 
@@ -458,15 +464,16 @@ __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 
 	// CUDA_SAFE_CALL(cudaMemcpy(d_image, pFrameRGB->data[0], size, cudaMemcpyHostToDevice));
 	grayGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
-	// for (int i = 0; i < NUM_BLUR; i++)
-	// 	blurGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);	
+	for (int i = 0; i < NUM_BLUR; i++)
+		blurGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);	
 	CUDA_SAFE_CALL(cudaThreadSynchronize());
 	// CUDA_SAFE_CALL(cudaMemcpy(pFrameRGB->data[0], d_image, size, cudaMemcpyDeviceToHost));
 
 	CUDA_SAFE_CALL(cudaEventRecord(stop, 0));
 	CUDA_SAFE_CALL(cudaEventSynchronize(stop ));
 	CUDA_SAFE_CALL(cudaEventElapsedTime(&elapsedTime, start, stop));
-	printf("Time taken:  %3.1f ms\n", elapsedTime);
+
+	logfile << elapsedTime  << endl;
 }
 
 __global__ void grayGPU(unsigned char * image, int width, int height) 

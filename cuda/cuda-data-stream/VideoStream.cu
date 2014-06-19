@@ -1,6 +1,7 @@
 #include <cuda.h>
 #include <iostream>
 #include <iomanip>
+#include <fstream>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -16,15 +17,14 @@ using namespace std;
  # include <stdint.h>
 #endif
 
-
-#define SDL_INTERFACE
+// #define SDL_INTERFACE
 
 #define CUDA_SAFE_CALL
 #define ELEM(i,j,DIMX_) ((i)+(j)*(DIMX_))
 
 #define BUS_SZ 8
 
-#define NUM_BLUR 1
+#define NUM_BLUR 0
 
 cudaEvent_t     start, stop;
 cudaStream_t    stream0, stream1;
@@ -75,6 +75,8 @@ unsigned char * d_image5 = NULL;
 unsigned char * d_image6 = NULL;
 unsigned char * d_image7 = NULL;
 unsigned char * d_image8 = NULL;
+
+ofstream logfile;
 
 __host__ int setup_video(const char * filename);
 __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp);
@@ -171,8 +173,8 @@ __host__ int main (int argc, char ** argv)
 				std::cout << "write frame " << counter_frames << "(size = " << out_size << ")" << std::endl;
 				fwrite(outbuf, 1, out_size, pFile);
 			#endif
-				cout << "Frame [" << counter_frames <<"] : " << get_clock_msec() - start_time<< " ms" << endl;
-				counter_frames++;
+				// cout << "Frame [" << counter_frames <<"] : " << get_clock_msec() - start_time<< " ms" << endl;
+				// counter_frames++;
 
 		     }	
     	}
@@ -438,6 +440,7 @@ __host__ void cuda_init(int h_width, int h_height)
 
 	CUDA_SAFE_CALL(cudaEventCreate(&start));
 	CUDA_SAFE_CALL(cudaEventCreate(&stop));
+	logfile.open("log.txt", ofstream::out | ofstream::app);
 }
 
 __host__ void cuda_finish() 
@@ -532,7 +535,9 @@ __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 	CUDA_SAFE_CALL(cudaEventRecord(stop, 0));
 	CUDA_SAFE_CALL(cudaEventSynchronize(stop));
 	CUDA_SAFE_CALL(cudaEventElapsedTime(&elapsedTime, start, stop));
-	printf("Time taken:  %3.1f ms\n", elapsedTime);
+
+	logfile << elapsedTime  << endl;
+
 }
 
 __global__ void grayGPU(unsigned char * image, int width, int height) 
