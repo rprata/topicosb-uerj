@@ -8,6 +8,8 @@
 
 using namespace std;
 
+#define SDL_INTERFACE
+
 #ifdef __cplusplus
  #define __STDC_CONSTANT_MACROS
  #ifdef _STDINT_H
@@ -16,18 +18,12 @@ using namespace std;
  # include <stdint.h>
 #endif
 
-
-#define SDL_INTERFACE
-
 #define CUDA_SAFE_CALL
 #define ELEM(i,j,DIMX_) ((i)+(j)*(DIMX_))
 
-#define BUS_SZ 8
-
-#define NUM_BLUR 1
+#define NUM_BLUR 10000
 
 cudaEvent_t     start, stop;
-cudaStream_t    stream0, stream1;
 float           elapsedTime;
 
 extern "C" {
@@ -67,20 +63,13 @@ FILE * pFile;
 
 int blSizeX = 16, blSizeY = 16;
 
-unsigned char * d_image1 = NULL;
-unsigned char * d_image2 = NULL;
-unsigned char * d_image3 = NULL;
-unsigned char * d_image4 = NULL;
-unsigned char * d_image5 = NULL;
-unsigned char * d_image6 = NULL;
-unsigned char * d_image7 = NULL;
-unsigned char * d_image8 = NULL;
+unsigned char * d_image = NULL;
 
 __host__ int setup_video(const char * filename);
 __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp);
 __host__ void play_original_video(const char * arg);
 __host__ void filter_video(AVFrame * pFrame, int width, int height);
-__host__ void cuda_init(int h_height, int h_width);
+__host__ int cuda_init(int h_height, int h_width);
 __host__ void cuda_finish();
 __global__ void grayGPU(unsigned char *image, int width, int height);
 __global__ void blurGPU(unsigned char * image, int width, int height); 
@@ -97,7 +86,9 @@ __host__ int main (int argc, char ** argv)
 	if (setup_video(argv[1]) < 0)
 		return -1;
 
-	cuda_init(pCodecCtx->width, pCodecCtx->height);
+	if (cuda_init(pCodecCtx->width, pCodecCtx->height) < 0)
+		return -1;
+
 	double start_time;
 	while(av_read_frame(pFormatCtx, &packet) >= 0)
 	{
@@ -420,117 +411,60 @@ __host__ void play_original_video(const char * arg)
 	system(command);
 }
 
-__host__ void cuda_init(int h_width, int h_height)
+__host__ int cuda_init(int h_width, int h_height)
 {
-	int  size = 3 * h_height * h_width;
-	CUDA_SAFE_CALL(cudaHostAlloc((void**) &pFrameRGB->data[0], size, cudaHostAllocDefault));
-	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image1, size / BUS_SZ));
-	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image2, size / BUS_SZ));
-	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image3, size / BUS_SZ));
-	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image4, size / BUS_SZ));
-	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image5, size / BUS_SZ));
-	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image6, size / BUS_SZ));
-	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image7, size / BUS_SZ));
-	CUDA_SAFE_CALL(cudaMalloc((void**) &d_image8, size / BUS_SZ));
 
-	CUDA_SAFE_CALL(cudaStreamCreate(&stream0));
-	CUDA_SAFE_CALL(cudaStreamCreate(&stream1));
+	//-----------------------------------------------------------
+	// Obrigatorio configurar flag cudaDeviceMapHost
+	cudaDeviceProp  prop;
+	int whichDevice;
+	cudaGetDevice(&whichDevice);
+	cudaGetDeviceProperties(&prop, whichDevice);
+	if (prop.canMapHostMemory != 1)
+	{
+		cout << "Device can not map memory" << endl;
+		return -1;
+	}
+	cudaSetDeviceFlags(cudaDeviceMapHost);
+	//-----------------------------------------------------------
+
+	int  size = 3 * h_height * h_width;
+	CUDA_SAFE_CALL(cudaHostAlloc((void**) &pFrameRGB->data[0], size, cudaHostAllocWriteCombined | cudaHostAllocMapped));
+	CUDA_SAFE_CALL(cudaHostGetDevicePointer(&d_image, pFrameRGB->data[0], 0));
+	// CUDA_SAFE_CALL(cudaMalloc((void**) &d_image, size));
 
 	CUDA_SAFE_CALL(cudaEventCreate(&start));
 	CUDA_SAFE_CALL(cudaEventCreate(&stop));
+
+	return 0;
 }
 
 __host__ void cuda_finish() 
 {
 	CUDA_SAFE_CALL(cudaFreeHost(pFrameRGB->data[0]));
-	CUDA_SAFE_CALL(cudaFree(d_image1));
-	CUDA_SAFE_CALL(cudaFree(d_image2));
-	CUDA_SAFE_CALL(cudaFree(d_image3));
-	CUDA_SAFE_CALL(cudaFree(d_image4));
-	CUDA_SAFE_CALL(cudaFree(d_image5));
-	CUDA_SAFE_CALL(cudaFree(d_image6));
-	CUDA_SAFE_CALL(cudaFree(d_image7));
-	CUDA_SAFE_CALL(cudaFree(d_image8));
-
-	CUDA_SAFE_CALL(cudaStreamDestroy(stream0));
-	CUDA_SAFE_CALL(cudaStreamDestroy(stream1));
+	// CUDA_SAFE_CALL(cudaFree(d_image));
 }
 
 __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 {
 	cudaEventRecord(start, 0);
 	int  size = 3 * h_height * h_width;
-	int N = size / BUS_SZ;
 
 	// Calcula dimensoes da grid e dos blocos
 	dim3 blockSize( blSizeX, blSizeY );
 	int numBlocosX = h_width  / blockSize.x + ( h_width  % blockSize.x == 0 ? 0 : 1 );
 	int numBlocosY = h_height / blockSize.y + ( h_height % blockSize.y == 0 ? 0 : 1 );
-	dim3 gridSize( numBlocosX, numBlocosY / BUS_SZ, 1 );
+	dim3 gridSize( numBlocosX, numBlocosY, 1 );
 
-	CUDA_SAFE_CALL(cudaMemcpyAsync(d_image1, pFrameRGB->data[0], N, cudaMemcpyHostToDevice, stream0));
-	CUDA_SAFE_CALL(cudaMemcpyAsync(d_image2, pFrameRGB->data[0] + N, N, cudaMemcpyHostToDevice, stream1));
-	
-	grayGPU<<< gridSize, blockSize, 0, stream0 >>>(d_image1, h_width, 1 + h_height / BUS_SZ);
-	grayGPU<<< gridSize, blockSize, 0, stream1 >>>(d_image2, h_width, h_height / BUS_SZ);
-
-	for (int i = 0; i < NUM_BLUR; i++)
-	{
-		blurGPU<<< gridSize, blockSize, 0, stream0 >>>(d_image1, h_width, h_height / BUS_SZ);	
-		blurGPU<<< gridSize, blockSize, 0, stream1 >>>(d_image2, h_width, h_height / BUS_SZ);	
-	}
-
-	CUDA_SAFE_CALL(cudaMemcpyAsync(pFrameRGB->data[0], d_image1, N, cudaMemcpyDeviceToHost, stream0));
-	CUDA_SAFE_CALL(cudaMemcpyAsync(pFrameRGB->data[0] + N, d_image2, N, cudaMemcpyDeviceToHost, stream1));
-
-	CUDA_SAFE_CALL(cudaMemcpyAsync(d_image3, pFrameRGB->data[0] + 2 * N, N, cudaMemcpyHostToDevice, stream0));
-	CUDA_SAFE_CALL(cudaMemcpyAsync(d_image4, pFrameRGB->data[0] + 3 * N, N, cudaMemcpyHostToDevice, stream1));
-
-	grayGPU<<< gridSize, blockSize, 0, stream0 >>>(d_image3, h_width, h_height / BUS_SZ);
-	grayGPU<<< gridSize, blockSize, 0, stream1 >>>(d_image4, h_width, h_height / BUS_SZ);
-
-	for (int i = 0; i < NUM_BLUR; i++)
-	{
-		blurGPU<<< gridSize, blockSize, 0, stream0 >>>(d_image3, h_width, h_height / BUS_SZ);	
-		blurGPU<<< gridSize, blockSize, 0, stream1 >>>(d_image4, h_width, h_height / BUS_SZ);	
-	}
-
-	CUDA_SAFE_CALL(cudaMemcpyAsync(pFrameRGB->data[0] + 2 * N, d_image3, N, cudaMemcpyDeviceToHost, stream0));
-	CUDA_SAFE_CALL(cudaMemcpyAsync(pFrameRGB->data[0] + 3 * N, d_image4, N, cudaMemcpyDeviceToHost, stream1));
-
-	CUDA_SAFE_CALL(cudaMemcpyAsync(d_image5, pFrameRGB->data[0] + 4 * N, N, cudaMemcpyHostToDevice, stream0));
-	CUDA_SAFE_CALL(cudaMemcpyAsync(d_image6, pFrameRGB->data[0] + 5 * N, N, cudaMemcpyHostToDevice, stream1));
-
-	grayGPU<<< gridSize, blockSize, 0, stream0 >>>(d_image5, h_width, 3 + h_height / BUS_SZ);
-	grayGPU<<< gridSize, blockSize, 0, stream1 >>>(d_image6, h_width, 3 + h_height / BUS_SZ);
-
-	for (int i = 0; i < NUM_BLUR; i++)
-	{
-		blurGPU<<< gridSize, blockSize, 0, stream0 >>>(d_image5, h_width, 3 + h_height / BUS_SZ);	
-		blurGPU<<< gridSize, blockSize, 0, stream1 >>>(d_image6, h_width, 3 + h_height / BUS_SZ);	
-	}
-
-	CUDA_SAFE_CALL(cudaMemcpyAsync(pFrameRGB->data[0] + 4 * N, d_image5, N, cudaMemcpyDeviceToHost, stream0));
-	CUDA_SAFE_CALL(cudaMemcpyAsync(pFrameRGB->data[0] + 5 * N, d_image6, N, cudaMemcpyDeviceToHost, stream1));
-
-	CUDA_SAFE_CALL(cudaMemcpyAsync(d_image7, pFrameRGB->data[0] + 6 * N, N, cudaMemcpyHostToDevice, stream0));
-	CUDA_SAFE_CALL(cudaMemcpyAsync(d_image8, pFrameRGB->data[0] + 7 * N, N, cudaMemcpyHostToDevice, stream1));
-
-	grayGPU<<< gridSize, blockSize, 0, stream0 >>>(d_image7, h_width, h_height / BUS_SZ);
-	grayGPU<<< gridSize, blockSize, 0, stream1 >>>(d_image8, h_width, h_height / BUS_SZ);
-
-	for (int i = 0; i < NUM_BLUR; i++)
-	{
-		blurGPU<<< gridSize, blockSize, 0, stream0 >>>(d_image7, h_width, h_height / BUS_SZ);	
-		blurGPU<<< gridSize, blockSize, 0, stream1 >>>(d_image8, h_width, h_height / BUS_SZ);	
-	}
-
-	CUDA_SAFE_CALL(cudaMemcpyAsync(pFrameRGB->data[0] + 6 * N, d_image7, N, cudaMemcpyDeviceToHost, stream0));
-	CUDA_SAFE_CALL(cudaMemcpyAsync(pFrameRGB->data[0] + 7 * N, d_image8, N, cudaMemcpyDeviceToHost, stream1));
-
+	// CUDA_SAFE_CALL(cudaMemcpy(d_image, pFrameRGB->data[0], size, cudaMemcpyHostToDevice));
+	grayGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
+	// for (int i = 0; i < NUM_BLUR; i++)
+	// 	blurGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);	
+	CUDA_SAFE_CALL(cudaThreadSynchronize());
+	// CUDA_SAFE_CALL(cudaMemcpy(pFrameRGB->data[0], d_image, size, cudaMemcpyDeviceToHost));
 
 	CUDA_SAFE_CALL(cudaEventRecord(stop, 0));
-	CUDA_SAFE_CALL(cudaEventSynchronize(stop));
+	CUDA_SAFE_CALL(cudaEventSynchronize(stop ));
 	CUDA_SAFE_CALL(cudaEventElapsedTime(&elapsedTime, start, stop));
 	printf("Time taken:  %3.1f ms\n", elapsedTime);
 }
