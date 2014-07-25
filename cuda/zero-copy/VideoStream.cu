@@ -22,7 +22,7 @@ using namespace std;
 #define CUDA_SAFE_CALL
 #define ELEM(i,j,DIMX_) ((i)+(j)*(DIMX_))
 
-#define NUM_BLUR 10
+#define NUM_BLUR 0
 
 cudaEvent_t     start, stop;
 float           elapsedTime, totalTime;
