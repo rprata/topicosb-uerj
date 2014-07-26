@@ -1,0 +1,10 @@
+echo 1/5
+./VideoStream ../../big_buck_bunny_720p_surround.avi 16 16   1 simplex ; tail -n  1 log.txt  > totaltimes.txt
+echo 2/5
+./VideoStream ../../big_buck_bunny_720p_surround.avi 16 24   1 simplex ; tail -n  1 log.txt >> totaltimes.txt
+echo 3/5
+./VideoStream ../../big_buck_bunny_720p_surround.avi 16 32   1 simplex ; tail -n  1 log.txt >> totaltimes.txt
+echo 4/5
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 24   1 simplex ; tail -n  1 log.txt >> totaltimes.txt
+echo 5/5
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32  1 simplex ; tail -n  1 log.txt >> totaltimes.txt
