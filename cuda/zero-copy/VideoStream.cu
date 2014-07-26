@@ -12,11 +12,11 @@ using namespace std;
 // #define SDL_INTERFACE
 
 #ifdef __cplusplus
- #define __STDC_CONSTANT_MACROS
- #ifdef _STDINT_H
-  #undef _STDINT_H
- #endif
- # include <stdint.h>
+#define __STDC_CONSTANT_MACROS
+#ifdef _STDINT_H
+#undef _STDINT_H
+#endif
+# include <stdint.h>
 #endif
 
 #define CUDA_SAFE_CALL
@@ -63,6 +63,7 @@ int outbuf_size = 300000, out_size;
 FILE * pFile;
 
 int blSizeX = 16, blSizeY = 16;
+int numBlur = 1;
 
 unsigned char * d_image = NULL;
 
@@ -80,11 +81,29 @@ __global__ void blurGPU(unsigned char * image, int width, int height);
 
 __host__ int main (int argc, char ** argv)
 {
-	if (argc != 2)
+
+	if( argc == 1 )
 	{
-		fprintf(stderr, "Para rodar o programa, use: %s [video_path]\n", argv[0]);
+		fprintf(stderr, "Para rodar o programa, use: %s  <video> [BlockDimX] [BlockDimY]\n", argv[0]);
 		return -1;
 	}
+	switch( argc ) {
+
+	case 3:
+		blSizeX = atoi( argv[2] );
+		break;
+	case 4:
+		blSizeX = atoi( argv[2] );
+		blSizeY = atoi( argv[3] );
+		break;
+	case 5:
+		blSizeX = atoi( argv[2] );
+		blSizeY = atoi( argv[3] );
+		numBlur = atoi( argv[4] );
+		break;
+	}
+	fprintf( stderr, "Tamanho do Bloco (%d,%d): %d\n", blSizeX, blSizeY, blSizeX*blSizeY );
+	fprintf( stderr, "Numero de filtragens: %d\n", numBlur );
 
 	if (setup_video(argv[1]) < 0)
 		return -1;
@@ -92,54 +111,53 @@ __host__ int main (int argc, char ** argv)
 	if (cuda_init(pCodecCtx->width, pCodecCtx->height) < 0)
 		return -1;
 
-	double start_time;
+	//double start_time;
 	while(av_read_frame(pFormatCtx, &packet) >= 0)
 	{
-	  	//Testa se e unm pacote com de stream de video
-	  	if(packet.stream_index == video_stream) 
-	  	{	  		
-	  		start_time = get_clock_msec();
+		//Testa se e unm pacote com de stream de video
+		if(packet.stream_index == video_stream) 
+		{	  		
 			// Decode frame de video
-		    avcodec_decode_video2(pCodecCtx, pDecodedFrame, &frameFinished, &packet);
-		    
-		    //Testa se ja existe um quadro de video
-		    if (frameFinished) 
-		    {
-		    
-		    #ifdef SDL_INTERFACE	
-		    	SDL_LockYUVOverlay(bmp);
-		    #endif
+			avcodec_decode_video2(pCodecCtx, pDecodedFrame, &frameFinished, &packet);
+	    
+			//Testa se ja existe um quadro de video
+			if (frameFinished) 
+			{
+	    
+#ifdef SDL_INTERFACE	
+				SDL_LockYUVOverlay(bmp);
+#endif
 
-		   		//Converte a imagem de seu formato nativo para RGB
-		   		sws_scale
-				(
-					sws_ctx,
-					(uint8_t const * const *) pDecodedFrame->data,
-					pDecodedFrame->linesize,
-					0,
-					pCodecCtx->height,
-					pFrameRGB->data,
-					pFrameRGB->linesize
-				);
+				//Converte a imagem de seu formato nativo para RGB
+				sws_scale
+					(
+						sws_ctx,
+						(uint8_t const * const *) pDecodedFrame->data,
+						pDecodedFrame->linesize,
+						0,
+						pCodecCtx->height,
+						pFrameRGB->data,
+						pFrameRGB->linesize
+						);
 
 				filter_video(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
 
-			#if defined(SDL_INTERFACE) || defined(SAVE_VIDEO)
+#if defined(SDL_INTERFACE) || defined(SAVE_VIDEO)
 				//Convertendo de RGB para YUV
 				sws_scale (
 					out_sws_ctx, 
 					(uint8_t const * const *) pFrameRGB->data, 
 					pFrameRGB->linesize, 
-        			0, 
-        			c->height, 
-        			pOutputFrame->data, 
-        			pOutputFrame->linesize
-        		);	
-			#endif
+					0, 
+					c->height, 
+					pOutputFrame->data, 
+					pOutputFrame->linesize
+					);	
+#endif
 
-			#ifdef SDL_INTERFACE	
-				
-	    		pOutputFrame->data[0] = bmp->pixels[0];
+#ifdef SDL_INTERFACE	
+			
+				pOutputFrame->data[0] = bmp->pixels[0];
 				pOutputFrame->data[1] = bmp->pixels[2];
 				pOutputFrame->data[2] = bmp->pixels[1];
 
@@ -156,53 +174,53 @@ __host__ int main (int argc, char ** argv)
 
 				SDL_DisplayYUVOverlay(bmp, &rect);
 
-			#endif
+#endif
 
-			#ifdef SAVE_VIDEO
+#ifdef SAVE_VIDEO
 				//codigo para salvar frames em uma saida
 				fflush(stdout);
 				out_size = avcodec_encode_video(c, outbuf, outbuf_size, pOutputFrame);
 				std::cout << "write frame " << counter_frames << "(size = " << out_size << ")" << std::endl;
 				fwrite(outbuf, 1, out_size, pFile);
-			#endif
+#endif
 				// cout << "Frame [" << counter_frames <<"] : " << get_clock_msec() - start_time<< " ms" << endl;
 				// counter_frames++;
 
-		     }	
-    	}
+			}	
+		}
+
+		// Libera o pacote alocado pelo pacote
+		av_free_packet(&packet);
+	
+#ifdef SDL_INTERFACE	
+		SDL_PollEvent(&event);
     
-  		// Libera o pacote alocado pelo pacote
-  		av_free_packet(&packet);
-  	
-  	#ifdef SDL_INTERFACE	
-  		SDL_PollEvent(&event);
-	    
-	    switch(event.type) 
-	    {
-	    	case SDL_QUIT: SDL_Quit();
-	    		return 0;
-	      		break;
-	    	default:
-	      		break;
-	    }
-	#endif
+		switch(event.type) 
+		{
+		case SDL_QUIT: SDL_Quit();
+			return 0;
+			break;
+		default:
+			break;
+		}
+#endif
 	}
 
 #ifdef SAVE_VIDEO	
 	//captura frames atrasados 
-    for(; out_size; counter_frames++) { 
-        fflush(stdout); 
-                
-        out_size = avcodec_encode_video(c, outbuf, outbuf_size, NULL); 
+	for(; out_size; counter_frames++) { 
+		fflush(stdout); 
+            
+		out_size = avcodec_encode_video(c, outbuf, outbuf_size, NULL); 
 		std::cout << "write frame " << counter_frames << "(size = " << out_size << ")" << std::endl;
-        fwrite(outbuf, 1, outbuf_size, pFile);       
-    } 
+		fwrite(outbuf, 1, outbuf_size, pFile);       
+	} 
 
 	// adiciona sequencia para um real mpeg
-    outbuf[0] = 0x00;
-    outbuf[1] = 0x00;
-    outbuf[2] = 0x01;
-    outbuf[3] = 0xb7;
+	outbuf[0] = 0x00;
+	outbuf[1] = 0x00;
+	outbuf[2] = 0x01;
+	outbuf[3] = 0xb7;
 #endif
 
 #ifdef SAVE_VIDEO
@@ -243,12 +261,12 @@ __host__ int setup_video(const char * filename)
 
 	//Recupera a informacao do stream;
 	if (avformat_find_stream_info(pFormatCtx, NULL) < 0)
-  	{
-  		fprintf(stderr, "Nao foi possivel encontrar a informacao do stream\n");
-  		return -1; 
-  	}
+	{
+		fprintf(stderr, "Nao foi possivel encontrar a informacao do stream\n");
+		return -1; 
+	}
 
-  	//Informacao bruta sobre o arquivo de video;
+	//Informacao bruta sobre o arquivo de video;
 	av_dump_format(pFormatCtx, 0, filename, 0);
 
 	//Encontra o primeiro stream de video (video principal)	
@@ -287,35 +305,35 @@ __host__ int setup_video(const char * filename)
 	pDecodedFrame = avcodec_alloc_frame();
 
 	if ((pFrameRGB = avcodec_alloc_frame()) == NULL)
-  	{
-  		fprintf(stderr, "Nao foi possivel alocar memoria para o frame de video\n");
-	  	return -1;
-  	}
+	{
+		fprintf(stderr, "Nao foi possivel alocar memoria para o frame de video\n");
+		return -1;
+	}
 
-  	if ((pOutputFrame = avcodec_alloc_frame()) == NULL)
-  	{
-  		fprintf(stderr, "Nao foi possivel alocar memoria para o frame de video\n");
-	  	return -1;
-  	}
-	
+	if ((pOutputFrame = avcodec_alloc_frame()) == NULL)
+	{
+		fprintf(stderr, "Nao foi possivel alocar memoria para o frame de video\n");
+		return -1;
+	}
+
 	//Determina o tamanho necessario do buffer e aloca a memoria
 	numBytesRGB = avpicture_get_size(PIX_FMT_RGB24, pCodecCtx->width, pCodecCtx->height);
-	
+
 	bufferRGB = (uint8_t *) av_malloc(numBytesRGB*sizeof(uint8_t));
 
 	//Configura o contexto para o escalonamento
 	sws_ctx = sws_getContext (
-	        pCodecCtx->width,
-	        pCodecCtx->height,
-	        pCodecCtx->pix_fmt,
-	        pCodecCtx->width,
-	        pCodecCtx->height,
-	        PIX_FMT_RGB24,
-	        SWS_BILINEAR,
-	        NULL,
-	        NULL,
-	        NULL
-	);
+		pCodecCtx->width,
+		pCodecCtx->height,
+		pCodecCtx->pix_fmt,
+		pCodecCtx->width,
+		pCodecCtx->height,
+		PIX_FMT_RGB24,
+		SWS_BILINEAR,
+		NULL,
+		NULL,
+		NULL
+		);
 
 	//Aplica para o buffer os frames no formato FMT_RGB24 (pacote RGB 8:8:8, 24bpp, RGBRGB...)
 	avpicture_fill((AVPicture *) pFrameRGB, bufferRGB , PIX_FMT_RGB24, pCodecCtx->width, pCodecCtx->height);
@@ -332,58 +350,60 @@ __host__ int setup_video(const char * filename)
 	c = avcodec_alloc_context3(codec);
 
 	//Configurando valores para o contexto do video de saida
-    c->bit_rate = pCodecCtx->bit_rate;
-    c->width = pCodecCtx->width;
-    c->height = pCodecCtx->height;
-    c->time_base = pCodecCtx->time_base;
-    c->gop_size = pCodecCtx->gop_size;
-    c->max_b_frames = pCodecCtx->max_b_frames;
-    c->pix_fmt = PIX_FMT_YUV420P;
+	c->bit_rate = pCodecCtx->bit_rate;
+	c->width = pCodecCtx->width;
+	c->height = pCodecCtx->height;
+	c->time_base = pCodecCtx->time_base;
+	c->gop_size = pCodecCtx->gop_size;
+	c->max_b_frames = pCodecCtx->max_b_frames;
+	c->pix_fmt = PIX_FMT_YUV420P;
 
-    if (avcodec_open2(c, codec, NULL) < 0) return -1;
+	if (avcodec_open2(c, codec, NULL) < 0) return -1;
 
 #ifdef SAVE_VIDEO
-    pFile = fopen("out.mpg", "wb");
+	pFile = fopen("out.mpg", "wb");
 	if (!pFile) 
 	{
-    	fprintf(stderr, "could not open out.mpg\n");
-	    return -1;
+		fprintf(stderr, "could not open out.mpg\n");
+		return -1;
 	}
 #endif
 	outbuf = (uint8_t *) av_malloc(outbuf_size);
 
 
 	//Criacao de contexto para converter um tipo RGB24 para YUV240P (preparacao para encoded)
-    numBytesYUV = avpicture_get_size(PIX_FMT_YUV420P, c->width, c->height);
-	
+	numBytesYUV = avpicture_get_size(PIX_FMT_YUV420P, c->width, c->height);
+
 	bufferYUV = (uint8_t *) av_malloc(numBytesYUV*sizeof(uint8_t));
 
-    out_sws_ctx = sws_getContext (
-	        c->width,
-	        c->height,
-	        PIX_FMT_RGB24,
-	       	c->width,
-	        c->height,
-	        PIX_FMT_YUV420P,
-	        SWS_FAST_BILINEAR,
-	        NULL,
-	        NULL,
-	        NULL
-	);
+	out_sws_ctx = sws_getContext (
+		c->width,
+		c->height,
+		PIX_FMT_RGB24,
+		c->width,
+		c->height,
+		PIX_FMT_YUV420P,
+		SWS_FAST_BILINEAR,
+		NULL,
+		NULL,
+		NULL
+		);
 
 	avpicture_fill((AVPicture *) pOutputFrame, bufferYUV , PIX_FMT_YUV420P, c->width, c->height);
 
 
 #ifdef SDL_INTERFACE	
 	bmp = init_sdl_window(pCodecCtx, bmp);
-	
+
 	if (bmp == NULL) 
 	{
 		return -1;
 	}
-	
+
 	// play_original_video(filename);
 #endif
+
+	return 1;
 
 }
 
@@ -391,22 +411,22 @@ __host__ SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay *
 {
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER)) 
 	{
-    	fprintf(stderr, "Nao foi possivel inicializar o SDL - %s\n", SDL_GetError());
-    	return NULL;
-  	}
+		fprintf(stderr, "Nao foi possivel inicializar o SDL - %s\n", SDL_GetError());
+		return NULL;
+	}
 
-  	SDL_Surface * screen;
+	SDL_Surface * screen;
 
 	screen = SDL_SetVideoMode(1280, 720, 0, 0);
 	if (!screen) 
 	{
-  		fprintf(stderr, "SDL: Nao foi possivel configurar o modo do video\n");
-  		return NULL;
+		fprintf(stderr, "SDL: Nao foi possivel configurar o modo do video\n");
+		return NULL;
 	}
 
 	bmp = SDL_CreateYUVOverlay(pCodecCtx->width, pCodecCtx->height, SDL_YV12_OVERLAY, screen);
-	
-  	return bmp;
+
+	return bmp;
 }
 
 __host__ void play_original_video(const char * arg) 
@@ -456,7 +476,7 @@ __host__ void cuda_finish()
 __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 {
 	cudaEventRecord(start, 0);
-	int  size = 3 * h_height * h_width;
+	//int  size = 3 * h_height * h_width;
 
 	// Calcula dimensoes da grid e dos blocos
 	dim3 blockSize( blSizeX, blSizeY );
@@ -466,7 +486,7 @@ __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 
 	// CUDA_SAFE_CALL(cudaMemcpy(d_image, pFrameRGB->data[0], size, cudaMemcpyHostToDevice));
 	//grayGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
-	for (int i = 0; i < NUM_BLUR; i++)
+	for (int i = 0; i < numBlur ; i++)
 		blurGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);	
 	CUDA_SAFE_CALL(cudaThreadSynchronize()); 
 	// CUDA_SAFE_CALL(cudaMemcpy(pFrameRGB->data[0], d_image, size, cudaMemcpyDeviceToHost));
@@ -487,92 +507,87 @@ __global__ void grayGPU(unsigned char * image, int width, int height)
 
 	if(i < width && j < height) {
 
-	 	int idx = 3*ELEM(i, j, width);
-	 	int r = image[ idx+2 ];
-	 	int g = image[ idx+1 ];
-	 	int b = image[ idx   ];
+		int idx = 3*ELEM(i, j, width);
+		int r = image[ idx+2 ];
+		int g = image[ idx+1 ];
+		int b = image[ idx   ];
 		float gg = (float)r*0.299f +(float)g*0.587f + (float)b*0.114f;
-	 	int gray = (int)gg;
-	 	image[ idx   ] = (unsigned char)gray;
-	 	image[ idx+1 ] = (unsigned char)gray;
-	 	image[ idx+2 ] = (unsigned char)gray;		
-	 }
+		int gray = (int)gg;
+		image[ idx   ] = (unsigned char)gray;
+		image[ idx+1 ] = (unsigned char)gray;
+		image[ idx+2 ] = (unsigned char)gray;		
+	}
 }
 
-__global__ void blurGPU(unsigned char * image, int width, int height) 
+__global__ void blurGPU(unsigned char * image, int width, int height)
 {
 
 	int i = threadIdx.x + blockIdx.x*blockDim.x;
 	int j = threadIdx.y + blockIdx.y*blockDim.y;
 
-	if ((i < (width - 1)) && (j < (height - 1))) 
+	if( i > 0 && j > 0 && i < (width - 1) && j < (height - 1) )
 	{
 
 		//pixel b
-	 	int idx = 3*ELEM(i, j, width);
-	 	int center = image[ idx ];
-	 	idx = 3*ELEM(i - 1, j, width);
-	 	int left = image[ idx ];
-	 	idx = 3*ELEM(i + 1, j, width);
-	 	int right = image[ idx ];
-	 	idx = 3*ELEM(i, j + 1, width);
-	 	int top = image[ idx ];
-	 	idx = 3*ELEM(i, j - 1, width);
-	 	int bottom = image[ idx ];
+		int idx = 3*ELEM( i, j, width );
+		int center = image[ idx ];
+		int left      = image[ idx-3 ];
+		int right    = image[ idx+3 ];
+		int top      = image[ idx+3*width ];
+		int bottom = image[ idx-3*width ];
 
-	 	float k1 = sqrt((float)((center - left)*(center - left)));
-	 	float k2 = sqrt((float)((center - right)*(center - right)));
-	 	float k3 = sqrt((float)((center - top)*(center - top)));
-	 	float k4 = sqrt((float)((center - bottom)*(center - bottom)));
+		float k1 = sqrt((float)((center - left)*(center - left)));
+		float k2 = sqrt((float)((center - right)*(center - right)));
+		float k3 = sqrt((float)((center - top)*(center - top)));
+		float k4 = sqrt((float)((center - bottom)*(center - bottom)));
 
-		float gg = (float) ((float) center + (float) left*k1 + (float) right*k2 + (float) top*k3 + (float) bottom*k4)/(1 + k1 + k2 + k3 + k4);
-	 	int blur = (int)gg;
-	 	idx = 3*ELEM(i, j, width);
-	 	image[ idx ] = (unsigned char)blur;
+		float gg = (float) ((float) center + (float) left*k1 + (float)
+				    right*k2 + (float) top*k3 + (float) bottom*k4)/(1 + k1 + k2 + k3 +
+										    k4);
+		int blur = (int)gg;
+		image[ idx ] = (unsigned char)blur;
 
-	 	//pixel g
-	 	center = image[ idx + 1];
-	 	idx = 3*ELEM(i - 1, j, width);
-	 	left = image[ idx  + 1];
-	 	idx = 3*ELEM(i + 1, j, width);
-	 	right = image[ idx + 1];
-	 	idx = 3*ELEM(i, j + 1, width);
-	 	top = image[ idx + 1];
-	 	idx = 3*ELEM(i, j - 1, width);
-	 	bottom = image[ idx + 1];
+		//pixel g
+		idx++;
+		center = image[ idx ];
+		left      = image[ idx-3 ];
+		right    = image[ idx+3 ];
+		top      = image[ idx+3*width ];
+		bottom = image[ idx-3*width ];
 
-	 	k1 = sqrt((float)((center - left)*(center - left)));
-	 	k2 = sqrt((float)((center - right)*(center - right)));
-	 	k3 = sqrt((float)((center - top)*(center - top)));
-	 	k4 = sqrt((float)((center - bottom)*(center - bottom)));
+		k1 = sqrt((float)((center - left)*(center - left)));
+		k2 = sqrt((float)((center - right)*(center - right)));
+		k3 = sqrt((float)((center - top)*(center - top)));
+		k4 = sqrt((float)((center - bottom)*(center - bottom)));
 
-		gg = (float) ((float) center + (float) left*k1 + (float) right*k2 + (float) top*k3 + (float) bottom*k4)/(1 + k1 + k2 + k3 + k4);
-	 	blur = (int)gg;
-	 	idx = 3*ELEM(i, j, width);
-	 	image[ idx  + 1] = (unsigned char)blur;
+		gg = (float) ((float) center + (float) left*k1 + (float)
+			      right*k2 + (float) top*k3 + (float) bottom*k4)/(1 + k1 + k2 + k3 +
+									      k4);
+		blur = (int)gg;
+		image[ idx ] = (unsigned char)blur;
 
 
-	 	//pixel r
-	 	center = image[ idx + 2];
-	 	idx = 3*ELEM(i - 1, j, width);
-	 	left = image[ idx  + 2];
-	 	idx = 3*ELEM(i + 1, j, width);
-	 	right = image[ idx + 2];
-	 	idx = 3*ELEM(i, j + 1, width);
-	 	top = image[ idx + 2];
-	 	idx = 3*ELEM(i, j - 1, width);
-	 	bottom = image[ idx + 2];
+		//pixel r
+		idx++;
+		center = image[ idx ];
+		left      = image[ idx-3 ];
+		right    = image[ idx+3 ];
+		top      = image[ idx+3*width ];
+		bottom = image[ idx-3*width ];
 
-	 	k1 = sqrt((float)((center - left)*(center - left)));
-	 	k2 = sqrt((float)((center - right)*(center - right)));
-	 	k3 = sqrt((float)((center - top)*(center - top)));
-	 	k4 = sqrt((float)((center - bottom)*(center - bottom)));
+		k1 = sqrt((float)((center - left)*(center - left)));
+		k2 = sqrt((float)((center - right)*(center - right)));
+		k3 = sqrt((float)((center - top)*(center - top)));
+		k4 = sqrt((float)((center - bottom)*(center - bottom)));
 
-		gg = (float) ((float) center + (float) left*k1 + (float) right*k2 + (float) top*k3 + (float) bottom*k4)/(1 + k1 + k2 + k3 + k4);
-	 	blur = (int)gg;
-	 	idx = 3*ELEM(i, j, width);
-	 	image[ idx  + 2] = (unsigned char)blur;
-	 }
+		gg = (float) ((float) center + (float) left*k1 + (float)
+			      right*k2 + (float) top*k3 + (float) bottom*k4)/(1 + k1 + k2 + k3 +
+									      k4);
+		blur = (int)gg;
+		image[ idx ] = (unsigned char)blur;
+
+	}
+
 }
 
 }

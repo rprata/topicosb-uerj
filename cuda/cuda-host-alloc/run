@@ -1,0 +1,24 @@
+echo 1/12
+./VideoStream ../big_buck_bunny_720p_surround.avi 16 32   0 ; tail -n  1 log.txt  > totaltimes.txt
+echo 2/12
+./VideoStream ../big_buck_bunny_720p_surround.avi 16 32   0 ; tail -n  1 log.txt >> totaltimes.txt
+echo 3/12
+./VideoStream ../big_buck_bunny_720p_surround.avi 16 32   1 ; tail -n  1 log.txt >> totaltimes.txt
+echo 4/12
+./VideoStream ../big_buck_bunny_720p_surround.avi 16 32   1 ; tail -n  1 log.txt >> totaltimes.txt
+echo 5/12
+./VideoStream ../big_buck_bunny_720p_surround.avi 16 32  10 ; tail -n  1 log.txt >> totaltimes.txt
+echo 6/12
+./VideoStream ../big_buck_bunny_720p_surround.avi 16 32  10 ; tail -n  1 log.txt >> totaltimes.txt
+echo 7/12
+./VideoStream ../big_buck_bunny_720p_surround.avi 16 32  50 ; tail -n  1 log.txt >> totaltimes.txt
+echo 8/12
+./VideoStream ../big_buck_bunny_720p_surround.avi 16 32  50 ; tail -n  1 log.txt >> totaltimes.txt
+echo 9/12
+./VideoStream ../big_buck_bunny_720p_surround.avi 16 32 100 ; tail -n  1 log.txt >> totaltimes.txt
+echo 10/12
+./VideoStream ../big_buck_bunny_720p_surround.avi 16 32 100 ; tail -n  1 log.txt >> totaltimes.txt
+echo 11/12
+./VideoStream ../big_buck_bunny_720p_surround.avi 16 32 500 ; tail -n  1 log.txt >> totaltimes.txt
+echo 12/12
+./VideoStream ../big_buck_bunny_720p_surround.avi 16 32 500 ; tail -n  1 log.txt >> totaltimes.txt

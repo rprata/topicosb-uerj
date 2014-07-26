@@ -20,14 +20,12 @@ using namespace std;
 #define CUDA_SAFE_CALL
 #define ELEM(i,j,DIMX_) ((i)+(j)*(DIMX_))
 
-#define NUM_BLUR 0
-
 cudaEvent_t     start, stop;
 float           elapsedTime, totalTime;
 
 extern "C" {
 
-#include <libavcodec/avcodec.h>
+#include <libavcodec/avcodec.h>m
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
 #include <libavutil/pixfmt.h>
@@ -61,6 +59,7 @@ int outbuf_size = 300000, out_size;
 FILE * pFile;
 
 int blSizeX = 16, blSizeY = 16;
+int numBlur = 1;
 
 unsigned char * d_image = NULL;
 
@@ -78,11 +77,29 @@ __global__ void blurGPU(unsigned char * image, int width, int height);
 
 __host__ int main (int argc, char ** argv)
 {
-	if (argc != 2)
+	if( argc == 1 )
 	{
-		fprintf(stderr, "Para rodar o programa, use: %s [video_path]\n", argv[0]);
+		fprintf(stderr, "Para rodar o programa, use: %s  <video> [BlockDimX] [BlockDimY]\n", argv[0]);
 		return -1;
 	}
+	switch( argc ) {
+
+	case 3:
+		blSizeX = atoi( argv[2] );
+		break;
+	case 4:
+		blSizeX = atoi( argv[2] );
+		blSizeY = atoi( argv[3] );
+		break;
+	case 5:
+		blSizeX = atoi( argv[2] );
+		blSizeY = atoi( argv[3] );
+		numBlur = atoi( argv[4] );
+		break;
+	}
+
+	fprintf( stderr, "Tamanho do Bloco (%d,%d): %d\n", blSizeX, blSizeY, blSizeX*blSizeY );
+	fprintf( stderr, "Numero de filtragens: %d\n", numBlur );
 
 	if (setup_video(argv[1]) < 0)
 		return -1;
@@ -442,7 +459,7 @@ __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 
 	CUDA_SAFE_CALL(cudaMemcpy(d_image, pFrameRGB->data[0], size, cudaMemcpyHostToDevice));
 	// grayGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
-	for (int i = 0; i < NUM_BLUR; i++)
+	for (int i = 0; i < numBlur; i++)
 		blurGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);	
 	CUDA_SAFE_CALL(cudaMemcpy(pFrameRGB->data[0], d_image, size, cudaMemcpyDeviceToHost));
 
@@ -474,81 +491,74 @@ __global__ void grayGPU(unsigned char * image, int width, int height)
 	 }
 }
 
-__global__ void blurGPU(unsigned char * image, int width, int height) 
+__global__ void blurGPU(unsigned char * image, int width, int height)
 {
 
 	int i = threadIdx.x + blockIdx.x*blockDim.x;
 	int j = threadIdx.y + blockIdx.y*blockDim.y;
 
-	if ((i < (width - 1)) && (j < (height - 1))) 
+	if( i > 0 && j > 0 && i < (width - 1) && j < (height - 1) )
 	{
 
 		//pixel b
-	 	int idx = 3*ELEM(i, j, width);
-	 	int center = image[ idx ];
-	 	idx = 3*ELEM(i - 1, j, width);
-	 	int left = image[ idx ];
-	 	idx = 3*ELEM(i + 1, j, width);
-	 	int right = image[ idx ];
-	 	idx = 3*ELEM(i, j + 1, width);
-	 	int top = image[ idx ];
-	 	idx = 3*ELEM(i, j - 1, width);
-	 	int bottom = image[ idx ];
+		int idx = 3*ELEM( i, j, width );
+		int center = image[ idx ];
+		int left      = image[ idx-3 ];
+		int right    = image[ idx+3 ];
+		int top      = image[ idx+3*width ];
+		int bottom = image[ idx-3*width ];
 
-	 	float k1 = sqrt((float)((center - left)*(center - left)));
-	 	float k2 = sqrt((float)((center - right)*(center - right)));
-	 	float k3 = sqrt((float)((center - top)*(center - top)));
-	 	float k4 = sqrt((float)((center - bottom)*(center - bottom)));
+		float k1 = sqrt((float)((center - left)*(center - left)));
+		float k2 = sqrt((float)((center - right)*(center - right)));
+		float k3 = sqrt((float)((center - top)*(center - top)));
+		float k4 = sqrt((float)((center - bottom)*(center - bottom)));
 
-		float gg = (float) ((float) center + (float) left*k1 + (float) right*k2 + (float) top*k3 + (float) bottom*k4)/(1 + k1 + k2 + k3 + k4);
-	 	int blur = (int)gg;
-	 	idx = 3*ELEM(i, j, width);
-	 	image[ idx   ] = (unsigned char)blur;
+		float gg = (float) ((float) center + (float) left*k1 + (float)
+				    right*k2 + (float) top*k3 + (float) bottom*k4)/(1 + k1 + k2 + k3 +
+										    k4);
+		int blur = (int)gg;
+		image[ idx ] = (unsigned char)blur;
 
-	 	//pixel g
-	 	center = image[ idx + 1];
-	 	idx = 3*ELEM(i - 1, j, width);
-	 	left = image[ idx  + 1];
-	 	idx = 3*ELEM(i + 1, j, width);
-	 	right = image[ idx + 1];
-	 	idx = 3*ELEM(i, j + 1, width);
-	 	top = image[ idx + 1];
-	 	idx = 3*ELEM(i, j - 1, width);
-	 	bottom = image[ idx + 1];
+		//pixel g
+		idx++;
+		center = image[ idx ];
+		left      = image[ idx-3 ];
+		right    = image[ idx+3 ];
+		top      = image[ idx+3*width ];
+		bottom = image[ idx-3*width ];
 
-	 	k1 = sqrt((float)((center - left)*(center - left)));
-	 	k2 = sqrt((float)((center - right)*(center - right)));
-	 	k3 = sqrt((float)((center - top)*(center - top)));
-	 	k4 = sqrt((float)((center - bottom)*(center - bottom)));
+		k1 = sqrt((float)((center - left)*(center - left)));
+		k2 = sqrt((float)((center - right)*(center - right)));
+		k3 = sqrt((float)((center - top)*(center - top)));
+		k4 = sqrt((float)((center - bottom)*(center - bottom)));
 
-		gg = (float) ((float) center + (float) left*k1 + (float) right*k2 + (float) top*k3 + (float) bottom*k4)/(1 + k1 + k2 + k3 + k4);
-	 	blur = (int)gg;
-	 	idx = 3*ELEM(i, j, width);
-	 	image[ idx  + 1] = (unsigned char)blur;
+		gg = (float) ((float) center + (float) left*k1 + (float)
+			      right*k2 + (float) top*k3 + (float) bottom*k4)/(1 + k1 + k2 + k3 +
+									      k4);
+		blur = (int)gg;
+		image[ idx ] = (unsigned char)blur;
 
 
-	 	//pixel r
-	 	center = image[ idx + 2];
-	 	idx = 3*ELEM(i - 1, j, width);
-	 	left = image[ idx  + 2];
-	 	idx = 3*ELEM(i + 1, j, width);
-	 	right = image[ idx + 2];
-	 	idx = 3*ELEM(i, j + 1, width);
-	 	top = image[ idx + 2];
-	 	idx = 3*ELEM(i, j - 1, width);
-	 	bottom = image[ idx + 2];
+		//pixel r
+		idx++;
+		center = image[ idx ];
+		left      = image[ idx-3 ];
+		right    = image[ idx+3 ];
+		top      = image[ idx+3*width ];
+		bottom = image[ idx-3*width ];
 
-	 	k1 = sqrt((float)((center - left)*(center - left)));
-	 	k2 = sqrt((float)((center - right)*(center - right)));
-	 	k3 = sqrt((float)((center - top)*(center - top)));
-	 	k4 = sqrt((float)((center - bottom)*(center - bottom)));
+		k1 = sqrt((float)((center - left)*(center - left)));
+		k2 = sqrt((float)((center - right)*(center - right)));
+		k3 = sqrt((float)((center - top)*(center - top)));
+		k4 = sqrt((float)((center - bottom)*(center - bottom)));
 
-		gg = (float) ((float) center + (float) left*k1 + (float) right*k2 + (float) top*k3 + (float) bottom*k4)/(1 + k1 + k2 + k3 + k4);
-	 	blur = (int)gg;
-	 	idx = 3*ELEM(i, j, width);
-	 	image[ idx  + 2] = (unsigned char)blur;
-	 }
+		gg = (float) ((float) center + (float) left*k1 + (float)
+			      right*k2 + (float) top*k3 + (float) bottom*k4)/(1 + k1 + k2 + k3 +
+									      k4);
+		blur = (int)gg;
+		image[ idx ] = (unsigned char)blur;
+	}
+
 }
-
 
 }
