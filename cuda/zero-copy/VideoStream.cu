@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string>
 
 #include "../rf-time.h"
 
@@ -22,7 +23,6 @@ using namespace std;
 #define CUDA_SAFE_CALL
 #define ELEM(i,j,DIMX_) ((i)+(j)*(DIMX_))
 
-#define NUM_BLUR 0
 
 cudaEvent_t     start, stop;
 float           elapsedTime, totalTime;
@@ -62,8 +62,11 @@ int outbuf_size = 300000, out_size;
 
 FILE * pFile;
 
+string filter_type;
+
 int blSizeX = 16, blSizeY = 16;
 int numBlur = 1;
+int isComplex = 1;
 
 unsigned char * d_image = NULL;
 
@@ -76,7 +79,8 @@ __host__ void filter_video(AVFrame * pFrame, int width, int height);
 __host__ int cuda_init(int h_height, int h_width);
 __host__ void cuda_finish();
 __global__ void grayGPU(unsigned char *image, int width, int height);
-__global__ void blurGPU(unsigned char * image, int width, int height); 
+__global__ void blurGPUSimplex(unsigned char * image, int width, int height); 
+__global__ void blurGPUComplex(unsigned char * image, int width, int height); 
 
 
 __host__ int main (int argc, char ** argv)
@@ -84,7 +88,7 @@ __host__ int main (int argc, char ** argv)
 
 	if( argc == 1 )
 	{
-		fprintf(stderr, "Para rodar o programa, use: %s  <video> [BlockDimX] [BlockDimY]\n", argv[0]);
+		fprintf(stderr, "Para rodar o programa, use: %s  <video> [BlockDimX] [BlockDimY] <filter-type>\n", argv[0]);
 		return -1;
 	}
 	switch( argc ) {
@@ -101,9 +105,31 @@ __host__ int main (int argc, char ** argv)
 		blSizeY = atoi( argv[3] );
 		numBlur = atoi( argv[4] );
 		break;
+	case 6: 
+		blSizeX = atoi( argv[2] );
+		blSizeY = atoi( argv[3] );
+		numBlur = atoi( argv[4] );
+		filter_type = string(argv[5]);
+		break;
 	}
+
 	fprintf( stderr, "Tamanho do Bloco (%d,%d): %d\n", blSizeX, blSizeY, blSizeX*blSizeY );
 	fprintf( stderr, "Numero de filtragens: %d\n", numBlur );
+	fprintf(stderr, "Tipo do filtro: %s\n", filter_type.c_str() );
+
+	if (filter_type == "simplex")
+	{
+		isComplex = 0;
+	}
+	else if (filter_type == "complex")
+	{
+		isComplex = 1;
+	}
+	else
+	{
+		fprintf(stderr, "Filtro não existe \n");
+		return 1;
+	}
 
 	if (setup_video(argv[1]) < 0)
 		return -1;
@@ -486,8 +512,13 @@ __host__ void filter_video(AVFrame * pFrame, int h_width, int h_height)
 
 	// CUDA_SAFE_CALL(cudaMemcpy(d_image, pFrameRGB->data[0], size, cudaMemcpyHostToDevice));
 	//grayGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);
-	for (int i = 0; i < numBlur ; i++)
-		blurGPU<<< gridSize, blockSize >>>(d_image, h_width, h_height);	
+	for (int i = 0; i < numBlur; i++)
+	{
+		if (isComplex)
+			blurGPUComplex<<< gridSize, blockSize >>>(d_image, h_width, h_height);	
+		else
+			blurGPUSimplex<<< gridSize, blockSize >>>(d_image, h_width, h_height);	
+	}
 	CUDA_SAFE_CALL(cudaThreadSynchronize()); 
 	// CUDA_SAFE_CALL(cudaMemcpy(pFrameRGB->data[0], d_image, size, cudaMemcpyDeviceToHost));
 
@@ -519,7 +550,59 @@ __global__ void grayGPU(unsigned char * image, int width, int height)
 	}
 }
 
-__global__ void blurGPU(unsigned char * image, int width, int height)
+__global__ void blurGPUSimplex(unsigned char * image, int width, int height)
+{
+
+	int i = threadIdx.x + blockIdx.x*blockDim.x;
+	int j = threadIdx.y + blockIdx.y*blockDim.y;
+
+	if( i > 0 && j > 0 && i < (width - 1) && j < (height - 1) )
+	{
+
+		//pixel b
+		int idx = 3*ELEM( i, j, width );
+		int center = image[ idx ];
+		int left      = image[ idx-3 ];
+		int right    = image[ idx+3 ];
+		int top      = image[ idx+3*width ];
+		int bottom = image[ idx-3*width ];
+
+		float gg = (float) ((float) center + (float) left + (float)
+				    right + (float) top + (float) bottom)/5.0f;
+		int blur = (int)gg;
+		image[ idx ] = (unsigned char)blur;
+
+		//pixel g
+		idx++;
+		center = image[ idx ];
+		left      = image[ idx-3 ];
+		right    = image[ idx+3 ];
+		top      = image[ idx+3*width ];
+		bottom = image[ idx-3*width ];
+
+		gg = (float) ((float) center + (float) left + (float)
+				    right + (float) top + (float) bottom)/5.0f;
+		blur = (int)gg;
+		image[ idx ] = (unsigned char)blur;
+
+
+		//pixel r
+		idx++;
+		center = image[ idx ];
+		left      = image[ idx-3 ];
+		right    = image[ idx+3 ];
+		top      = image[ idx+3*width ];
+		bottom = image[ idx-3*width ];
+
+		gg = (float) ((float) center + (float) left + (float)
+				    right + (float) top + (float) bottom)/5.0f;
+		blur = (int)gg;
+		image[ idx ] = (unsigned char)blur;
+	}
+
+}
+
+__global__ void blurGPUComplex(unsigned char * image, int width, int height)
 {
 
 	int i = threadIdx.x + blockIdx.x*blockDim.x;
@@ -585,7 +668,6 @@ __global__ void blurGPU(unsigned char * image, int width, int height)
 									      k4);
 		blur = (int)gg;
 		image[ idx ] = (unsigned char)blur;
-
 	}
 
 }

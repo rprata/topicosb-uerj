@@ -1,63 +1,75 @@
-echo "simplex \n" > totaltimes.txt
+echo -e "simplex \n" >> totaltimes.txt
 echo 1/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   0 simplex ; tail -n  1 log.txt  > totaltimes.txt
-echo "\n" > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   0 simplex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 2/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   0 simplex ; tail -n  1 log.txt  > totaltimes.txt
-echo "\n" > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   0 simplex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 3/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   1 simplex ; tail -n  1 log.txt  > totaltimes.txt
-echo "\n" > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   1 simplex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 4/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   1 simplex ; tail -n  1 log.txt  > totaltimes.txt
-echo "\n" > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   1 simplex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 5/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   10 simplex ; tail -n  1 log.txt  > totaltimes.txt
-echo "\n" > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   10 simplex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 6/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   10 simplex ; tail -n  1 log.txt  > totaltimes.txt
-echo "\n" > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   10 simplex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 7/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   50 simplex ; tail -n  1 log.txt  > totaltimes.txt
-echo "\n" > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   50 simplex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 8/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   50 simplex ; tail -n  1 log.txt  > totaltimes.txt
-echo "\n" > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   50 simplex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 9/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   100 simplex ; tail -n  1 log.txt  > totaltimes.txt
-echo "\n" > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   100 simplex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 10/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   100 simplex ; tail -n  1 log.txt  > totaltimes.txt
-echo "\n" > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   100 simplex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 11/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   500 simplex ; tail -n  1 log.txt  > totaltimes.txt
-echo "\n" > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   500 simplex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 12/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   500 simplex ; tail -n  1 log.txt  > totaltimes.txt
-
-echo "\complex \n" >> totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   500 simplex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
+echo -e "\ncomplex \n" >> totaltimes.txt
 
 echo 13/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   0 complex ; tail -n  1 log.txt  > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   0 complex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 14/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   0 complex ; tail -n  1 log.txt  > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   0 complex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 15/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   1 complex ; tail -n  1 log.txt  > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   1 complex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 16/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   1 complex ; tail -n  1 log.txt  > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   1 complex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 17/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   10 complex ; tail -n  1 log.txt  > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   10 complex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 18/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   10 complex ; tail -n  1 log.txt  > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   10 complex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 19/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   50 complex ; tail -n  1 log.txt  > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   50 complex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 20/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   50 complex ; tail -n  1 log.txt  > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   50 complex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 21/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   100 complex ; tail -n  1 log.txt  > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   100 complex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 22/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   100 complex ; tail -n  1 log.txt  > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   100 complex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 23/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   500 complex ; tail -n  1 log.txt  > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   500 complex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
 echo 24/24
-./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   500 complex ; tail -n  1 log.txt  > totaltimes.txt
+./VideoStream ../../big_buck_bunny_720p_surround.avi 32 32   500 complex ; tail -n  4 log.txt  >> totaltimes.txt
+echo -e "\n" >> totaltimes.txt
