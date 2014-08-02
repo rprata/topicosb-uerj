@@ -48,6 +48,7 @@ int isComplex = 1;
 
 ofstream logfile;
 double initial_time, final_time, elapsedTime, totalTime;
+char buff[100];
 
 void filter_video(AVFrame * pFrame, int width, int height);
 void filter_average(AVFrame * pFrame, int width, int height);
@@ -91,8 +92,9 @@ int main(int argc, char ** argv)
 		fprintf(stderr, "Filtro não existe \n");
 		return 1;
 	}
+	sprintf(buff, "%s%d", "log", numBlur);
 
-	logfile.open("log.txt", ofstream::out | ofstream::app);
+	logfile.open(buff, ofstream::out | ofstream::app);
 
 	filename = argv[1];
 
