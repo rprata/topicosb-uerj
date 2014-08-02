@@ -1,5 +1,14 @@
 #include <cstdio>
 #include <iostream>
+#include <iostream>
+#include <iomanip>
+#include <fstream>
+#include <string>
+#include <cmath>
+
+#include "rf-time.h"
+
+using namespace std;
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -11,8 +20,10 @@ extern "C" {
 #include <SDL.h>
 #include <SDL_thread.h>
 
+
 #define NUMBER_SAVED_FRAMES 250
 // #define SAVE_VIDEO
+// #define SDL_INTERFACE
 
 AVFormatContext * pFormatCtx;
 AVCodecContext * pCodecCtx;
@@ -31,20 +42,57 @@ int numBytesRGB, numBytesYUV;
 int frameFinished;
 int counter_frames = 0;
 
+string filter_type;
+int numBlur = 1;
+int isComplex = 1;
+
+ofstream logfile;
+double initial_time, final_time, elapsedTime, totalTime;
+
 void filter_video(AVFrame * pFrame, int width, int height);
 void filter_average(AVFrame * pFrame, int width, int height);
 void gray_filter(uint8_t * bufferRGB);
-void blur_filter(uint8_t * center, uint8_t left, uint8_t right, uint8_t top, uint8_t bottom);
+void blur_filterSimplex(uint8_t * center, uint8_t * left, uint8_t * right, uint8_t * top, uint8_t * bottom);
+void blur_filterComplex(uint8_t * center, uint8_t * left, uint8_t * right, uint8_t * top, uint8_t * bottom);
 void save_frame(AVFrame * pFrame, int width, int height, int iFrame);
 void play_original_video(const char * arg);
 SDL_Overlay * init_sdl_window(AVCodecContext * pCodecCtx, SDL_Overlay * bmp);
 int main(int argc, char ** argv)
 {
-	if (argc != 2)
+	if(	argc == 1)
 	{
-		fprintf(stderr, "Para rodar o programa, use: %s [video_path]\n", argv[0]);
+		fprintf(stderr, "Para rodar o programa, use: %s  <video> <interacoes> <filter-type>\n", argv[0]);
 		return -1;
 	}
+	switch(argc) {
+
+	case 3:
+		numBlur = atoi( argv[2] );
+		break;
+	case 4:
+		numBlur = atoi( argv[2] );
+		filter_type = string(argv[3]);
+		break;
+	}
+
+	fprintf( stderr, "Numero de filtragens: %d\n", numBlur );
+	fprintf(stderr, "Tipo do filtro: %s\n", filter_type.c_str() );
+
+	if (filter_type == "simplex")
+	{
+		isComplex = 0;
+	}
+	else if (filter_type == "complex")
+	{
+		isComplex = 1;
+	}
+	else
+	{
+		fprintf(stderr, "Filtro não existe \n");
+		return 1;
+	}
+
+	logfile.open("log.txt", ofstream::out | ofstream::app);
 
 	filename = argv[1];
 
@@ -162,12 +210,14 @@ int main(int argc, char ** argv)
 
     if (avcodec_open2(c, codec, NULL) < 0) return -1;
 
+#ifdef SAVE_VIDEO
     FILE * pFile = fopen("out.mpg", "wb");
 	if (!pFile) 
 	{
     	fprintf(stderr, "could not open out.mpg\n");
 	    return -1;
 	}
+#endif
 
 	int outbuf_size = 300000, out_size;
 	uint8_t * outbuf = (uint8_t *) av_malloc(outbuf_size);
@@ -192,7 +242,8 @@ int main(int argc, char ** argv)
 	);
 
 	avpicture_fill((AVPicture *) pOutputFrame, bufferYUV , PIX_FMT_YUV420P, c->width, c->height);
-	
+
+#ifdef SDL_INTERFACE	
 	bmp = init_sdl_window(pCodecCtx, bmp);
 	
 	if (bmp == NULL) 
@@ -200,7 +251,8 @@ int main(int argc, char ** argv)
 		return -1;
 	}
 	
-	play_original_video(argv[1]);
+	// play_original_video(argv[1]);
+#endif
 
 	while(av_read_frame(pFormatCtx, &packet) >= 0) 
 	{
@@ -213,7 +265,11 @@ int main(int argc, char ** argv)
 		    //Testa se ja existe um quadro de video
 		    if (frameFinished) 
 		    {
+		    	#ifdef SDL_INTERFACE
 		    	SDL_LockYUVOverlay(bmp);
+		    	#endif
+
+
 
 		   		//Converte a imagem de seu formato nativo para RGB
 		   		sws_scale
@@ -227,9 +283,17 @@ int main(int argc, char ** argv)
 					pFrameRGB->linesize
 				);
 
-				filter_video(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
+				// filter_video(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
 
-				filter_average(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
+				initial_time = get_clock_msec();
+				for (int i = 0; i < numBlur; i++)
+					filter_average(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
+
+				elapsedTime = get_clock_msec() - initial_time;
+				logfile << elapsedTime << endl;
+				totalTime += elapsedTime;
+
+				#if defined(SDL_INTERFACE) || defined(SAVE_VIDEO)
 
 				//Convertendo de RFB para YUV
 				sws_scale (
@@ -241,7 +305,9 @@ int main(int argc, char ** argv)
         			pOutputFrame->data, 
         			pOutputFrame->linesize
         		);	
+				#endif
 
+				#ifdef SDL_INTERFACE
 	    		pOutputFrame->data[0] = bmp->pixels[0];
 				pOutputFrame->data[1] = bmp->pixels[2];
 				pOutputFrame->data[2] = bmp->pixels[1];
@@ -258,7 +324,7 @@ int main(int argc, char ** argv)
 				rect.h = 720;
 
 				SDL_DisplayYUVOverlay(bmp, &rect);
-
+				#endif
 
 				#ifdef SAVE_VIDEO
 				//codigo para salvar frames em uma saida
@@ -275,7 +341,7 @@ int main(int argc, char ** argv)
     
   		// Libera o pacote alocado pelo pacote
   		av_free_packet(&packet);
-  		
+#ifdef SDL_INTERFACE
   		SDL_PollEvent(&event);
 	    
 	    switch(event.type) 
@@ -286,8 +352,9 @@ int main(int argc, char ** argv)
 	    	default:
 	      		break;
 	    }
+#endif	    
 	}
-
+#ifdef SAVE_VIDEO
 	//captura frames atrasados 
     for(; out_size; counter_frames++) { 
         fflush(stdout); 
@@ -303,10 +370,12 @@ int main(int argc, char ** argv)
     outbuf[2] = 0x01;
     outbuf[3] = 0xb7;
 	fwrite(outbuf, 1, 4, pFile);
-
 	fclose(pFile);
 	free(outbuf);
+#endif
 
+	logfile << elapsedTime << endl;
+	
 	//Fecha o codec
 	avcodec_close(pCodecCtx);
 
@@ -410,25 +479,76 @@ void filter_average(AVFrame * pFrame, int width, int height)
 		for(k = 3; k < 3 * (width - 1); k += 3)
 		{
 			uint8_t * center = (pFrame->data[0] + y*pFrame->linesize[0] + k);
-			uint8_t left = *(pFrame->data[0] + y*pFrame->linesize[0] + k - 3);
-			uint8_t right = *(pFrame->data[0] + y*pFrame->linesize[0] + k + 3);
-			uint8_t top = *(pFrame->data[0] + (y - 1)*pFrame->linesize[0] + k);
-			uint8_t bottom = *(pFrame->data[0] + (y + 1)*pFrame->linesize[0] + k);
-			blur_filter(center, left, right, top, bottom);
+			uint8_t * left = (pFrame->data[0] + y*pFrame->linesize[0] + k - 3);
+			uint8_t * right = (pFrame->data[0] + y*pFrame->linesize[0] + k + 3);
+			uint8_t * top =  (pFrame->data[0] + (y - 1)*pFrame->linesize[0] + k);
+			uint8_t * bottom = (pFrame->data[0] + (y + 1)*pFrame->linesize[0] + k);
+
+			if (isComplex)
+				blur_filterComplex(center, left, right, top, bottom);
+			else
+				blur_filterSimplex(center, left, right, top, bottom);
 		}
 	}
 }
 
-void blur_filter(uint8_t * center, uint8_t left, uint8_t right, uint8_t top, uint8_t bottom)
+void blur_filterSimplex(uint8_t * center, uint8_t * left, uint8_t * right, uint8_t * top, uint8_t * bottom)
 {
 	float pixel;
 	uint8_t out;
-	pixel = (float) ((float) ((int) *(center)) + (float) ((int) left) + (float) ((int) right) + (float) ((int) top) + (float) ((int) bottom))/5.0f;
+	pixel = (float) ((float) ((int) *(center)) + (float) ((int) *(left)) + (float) ((int) *(right)) + (float) ((int) *(top)) + (float) ((int) *(bottom)))/5.0f;
 	out = (uint8_t) pixel;
 	*(center) = out;
+
+	pixel = (float) ((float) ((int) *(center + 1)) + (float) ((int) *(left + 1)) + (float) ((int) *(right + 1)) + (float) ((int) *(top + 1)) + (float) ((int) *(bottom + 1) + 1))/5.0f;
+	out = (uint8_t) pixel;
 	*(center + 1) = out;
+
+	pixel = (float) ((float) ((int) *(center + 2)) + (float) ((int) *(left + 2)) + (float) ((int) *(right + 2)) + (float) ((int) *(top + 2)) + (float) ((int) *(bottom + 1) + 2))/5.0f;
+	out = (uint8_t) pixel;
 	*(center + 2) = out;
 }
 
+
+void blur_filterComplex(uint8_t * center, uint8_t * left, uint8_t * right, uint8_t * top, uint8_t * bottom)
+{
+	float pixel;
+	uint8_t out;
+	float k1, k2, k3, k4;
+
+	k1 = sqrt((float)((*center - *left)*(*center - *left)));
+	k2 = sqrt((float)((*center - *right)*(*center - *right)));
+	k3 = sqrt((float)((*center - *top)*(*center - *top)));
+	k4 = sqrt((float)((*center - *bottom)*(*center - *bottom)));
+
+
+	pixel = (float) ((float) ((int) *(center)) + (float) ((int) *(left)*k1) + 
+		(float) ((int) *(right)*k2) + (float) ((int) *(top)*k3) + 
+		(float) ((int) *(bottom)*k4))/(float)(1 + k1 + k2 + k3 +k4);
+	out = (uint8_t) pixel;
+	*(center) = out;
+
+	k1 = sqrt((float)((*(center + 1) - *(left + 1))*(*(center + 1) - *(left + 1))));
+	k2 = sqrt((float)((*(center + 1) - *(right + 1))*(*(center + 1) - *(right + 1))));
+	k3 = sqrt((float)((*(center + 1) - *(top + 1))*(*(center + 1) - *(top + 1))));
+	k4 = sqrt((float)((*(center + 1) - *(bottom + 1))*(*(center + 1) - *(bottom + 1))));
+
+	pixel = (float) ((float) ((int) *(center + 1)) + (float) ((int) *(left + 1)*k1) + 
+		(float) ((int) *(right + 1)*k2) + (float) ((int) *(top + 1)*k3) + 
+		(float) ((int) *(bottom + 1)*k4 + 1))/(float)(1 + k1 + k2 + k3 +k4);
+	out = (uint8_t) pixel;
+	*(center + 1) = out;
+
+	k1 = sqrt((float)((*(center + 2) - *(left + 2))*(*(center + 2) - *(left + 1))));
+	k2 = sqrt((float)((*(center + 2) - *(right + 2))*(*(center + 2) - *(right + 1))));
+	k3 = sqrt((float)((*(center + 2) - *(top + 2))*(*(center + 2) - *(top + 1))));
+	k4 = sqrt((float)((*(center + 2) - *(bottom + 2))*(*(center + 2) - *(bottom + 1))));
+
+	pixel = (float) ((float) ((int) *(center + 2)) + (float) ((int) *(left + 2)*k1) + 
+		(float) ((int) *(right + 2)*k2) + (float) ((int) *(top + 2)*k3) + 
+		(float) ((int) *(bottom + 2)*k4 + 1))/(float)(1 + k1 + k2 + k3 +k4);	
+	out = (uint8_t) pixel;
+	*(center + 2) = out;
+}
 
 }

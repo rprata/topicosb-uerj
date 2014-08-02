@@ -8,7 +8,7 @@ LDLIBS :=-lavutil \
 		 -lavutil \
 		 -lm \
 
-SOURCE :=main.cpp
+SOURCE :=main.cpp rf-time.cc
 EXECUTE :=main
 
 LDLIBS += `sdl-config --cflags --libs`
