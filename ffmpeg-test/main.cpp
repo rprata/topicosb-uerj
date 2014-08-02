@@ -376,7 +376,7 @@ int main(int argc, char ** argv)
 	free(outbuf);
 #endif
 
-	logfile << elapsedTime << endl;
+	logfile << "Tempo Total: " << totalTime << endl;
 	
 	//Fecha o codec
 	avcodec_close(pCodecCtx);
