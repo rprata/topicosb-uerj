@@ -47,12 +47,13 @@ string filter_type;
 int numBlur = 1;
 int isComplex = 1;
 
-ofstream logfile;
-double initial_time, final_time, elapsedTime, totalTime;
 char buff[100];
+
+int counter_sensor = 0;
 
 void filter_video(AVFrame * pFrame, int width, int height);
 void filter_average(AVFrame * pFrame, int width, int height);
+bool check_mov(AVFrame * pFrame, int width, int height);
 void gray_filter(uint8_t * bufferRGB);
 void blur_filterSimplex(uint8_t * center, uint8_t * left, uint8_t * right, uint8_t * top, uint8_t * bottom);
 void blur_filterComplex(uint8_t * center, uint8_t * left, uint8_t * right, uint8_t * top, uint8_t * bottom);
@@ -63,39 +64,9 @@ int main(int argc, char ** argv)
 {
 	if(	argc == 1)
 	{
-		fprintf(stderr, "Para rodar o programa, use: %s  <video> <interacoes> <filter-type>\n", argv[0]);
+		fprintf(stderr, "Para rodar o programa, use: %s <device>\n", argv[0]);
 		return -1;
 	}
-	switch(argc) {
-
-	case 3:
-		numBlur = atoi( argv[2] );
-		break;
-	case 4:
-		numBlur = atoi( argv[2] );
-		filter_type = string(argv[3]);
-		break;
-	}
-
-	fprintf( stderr, "Numero de filtragens: %d\n", numBlur );
-	fprintf(stderr, "Tipo do filtro: %s\n", filter_type.c_str() );
-
-	if (filter_type == "simplex")
-	{
-		isComplex = 0;
-	}
-	else if (filter_type == "complex")
-	{
-		isComplex = 1;
-	}
-	else
-	{
-		fprintf(stderr, "Filtro não existe \n");
-		return 1;
-	}
-	sprintf(buff, "%s%d", "log", numBlur);
-
-	logfile.open(buff, ofstream::out | ofstream::app);
 
 	filename = argv[1];
 
@@ -280,8 +251,6 @@ int main(int argc, char ** argv)
 		    	SDL_LockYUVOverlay(bmp);
 		    	#endif
 
-
-
 		   		//Converte a imagem de seu formato nativo para RGB
 		   		sws_scale
 				(
@@ -294,19 +263,14 @@ int main(int argc, char ** argv)
 					pFrameRGB->linesize
 				);
 
-				filter_video(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
-
-				// initial_time = get_clock_msec();
-				// for (int i = 0; i < numBlur; i++)
-				// 	filter_average(pFrameRGB, pCodecCtx->width, pCodecCtx->height);
-
-				elapsedTime = get_clock_msec() - initial_time;
-				logfile << elapsedTime << endl;
-				totalTime += elapsedTime;
+		    	if(check_mov(pFrameRGB, pCodecCtx->width, pCodecCtx->height))
+		    	{
+		    		printf("Contador do Sensor = %d\n", ++counter_sensor);
+		    	}
 
 				#if defined(SDL_INTERFACE) || defined(SAVE_VIDEO)
 
-				//Convertendo de RFB para YUV
+				//Convertendo de RGB para YUV
 				sws_scale (
 					out_sws_ctx, 
 					(uint8_t const * const *) pFrameRGB->data, 
@@ -384,8 +348,6 @@ int main(int argc, char ** argv)
 	fclose(pFile);
 	free(outbuf);
 #endif
-
-	logfile << "Tempo Total: " << totalTime << endl;
 	
 	//Fecha o codec
 	avcodec_close(pCodecCtx);
@@ -467,6 +429,49 @@ void filter_video(AVFrame * pFrame, int width, int height)
 		}
 }
 
+
+AVPicture pLastBufferRGB;
+bool first = true;
+#define SENSOR_FACTOR 5
+
+bool check_mov(AVFrame * pFrame, int width, int height) 
+{
+
+	int  y, k;
+	uint8_t * bufferRGB, * lastBufferRGB;
+	long long int total = 0;
+	long long int hit = 0;
+
+	bool res = false;
+
+	if (!first)
+	{
+		for(y = 0; y < height; y++)
+		{
+			for (k = 0; k < 3 * width; k += 3)
+			{
+				total += 1;
+				bufferRGB = pFrame->data[0] + y*pFrame->linesize[0] + k;
+				lastBufferRGB = pLastBufferRGB.data[0] + y*pLastBufferRGB.linesize[0] + k;
+				if ((*(bufferRGB) > *(lastBufferRGB) + SENSOR_FACTOR || *(bufferRGB) < *(lastBufferRGB) - SENSOR_FACTOR) ||
+					 (*(bufferRGB + 1) > *(lastBufferRGB + 1) + SENSOR_FACTOR || *(bufferRGB + 1) < *(lastBufferRGB + 1) - SENSOR_FACTOR) ||
+					 (*(bufferRGB + 2) > *(lastBufferRGB + 2) + SENSOR_FACTOR || *(bufferRGB + 2) < *(lastBufferRGB + 2) - SENSOR_FACTOR))
+				{
+					hit += 1;
+				}
+			}
+		}
+		if ((float)((float)hit/(float)total) > 0.6)
+		{
+			res = true;
+		}
+	}
+	first = false;
+	avpicture_alloc(&pLastBufferRGB, PIX_FMT_RGB24, width, height);
+	av_picture_copy(&pLastBufferRGB, (AVPicture *) pFrame, PIX_FMT_RGB24, width, height);
+	return res;
+}
+
 void gray_filter(uint8_t * bufferRGB)
 {
 	float r, g, b;
@@ -519,7 +524,6 @@ void blur_filterSimplex(uint8_t * center, uint8_t * left, uint8_t * right, uint8
 	out = (uint8_t) pixel;
 	*(center + 2) = out;
 }
-
 
 void blur_filterComplex(uint8_t * center, uint8_t * left, uint8_t * right, uint8_t * top, uint8_t * bottom)
 {
